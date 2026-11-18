@@ -20,6 +20,7 @@ module.exports = (req, res) => {
   const query = new URL(req.url, "https://vercel.invalid").searchParams;
   const routePath = query.get("__proxy_path");
   query.delete("__proxy_path");
+  query.delete("apiPath");
   if (
     !routePath ||
     routePath.split("/").some((part) => !/^[A-Za-z0-9_-]+$/.test(part))
