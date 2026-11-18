@@ -3,6 +3,10 @@
   "outputDirectory": "client/dist",
   "rewrites": [
     {
+      "source": "/api/:apiPath*",
+      "destination": "/api/proxy?__proxy_path=:apiPath*"
+    },
+    {
       "source": "/((?!api/|app\\.js|app\\.css).*)",
       "destination": "/index.html"
     }

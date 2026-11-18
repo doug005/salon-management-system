@@ -1,5 +1,6 @@
-// Vercel same-origin proxy keeps refresh cookies first-party. No credentials belong here.
+// Same-origin proxy keeps refresh cookies first-party; the backend origin is private configuration.
 const https = require("node:https");
+
 module.exports = (req, res) => {
   let origin;
   try {
@@ -15,11 +16,19 @@ module.exports = (req, res) => {
     res.statusCode = 503;
     return res.end("Backend origin is not configured.");
   }
-  const pathname = req.url.split("?")[0];
-  if (!pathname.startsWith("/api/")) {
+
+  const query = new URL(req.url, "https://vercel.invalid").searchParams;
+  const routePath = query.get("__proxy_path");
+  query.delete("__proxy_path");
+  if (
+    !routePath ||
+    routePath.split("/").some((part) => !/^[A-Za-z0-9_-]+$/.test(part))
+  ) {
     res.statusCode = 404;
     return res.end();
   }
+
+  const upstreamPath = `/api/${routePath}${query.size ? `?${query}` : ""}`;
   const headers = { ...req.headers, host: origin.host };
   delete headers.connection;
   delete headers["transfer-encoding"];
@@ -28,7 +37,7 @@ module.exports = (req, res) => {
     {
       hostname: origin.hostname,
       port: origin.port || 443,
-      path: req.url,
+      path: upstreamPath,
       method: req.method,
       headers,
       timeout: 15000,
