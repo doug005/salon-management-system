@@ -1,0 +1,43 @@
+node_modules/
+dist/
+client/dist/
+.env
+.env.*
+!.env.example
+server/.env
+server/.env.*
+!server/.env.example
+coverage/
+*.log
+.npm-cache/
+
+.local/
+.local*/
+playwright-report/
+test-results/
+mongodb-data/
+*.mongodb/
+
+# Uploaded media and generated archives
+uploads/
+public/uploads/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+review/*.zip
+
+# Credentials and private keys
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials.json
+*credentials*.json
+
+# OS/editor temporary files
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp

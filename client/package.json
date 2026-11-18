@@ -1,0 +1,28 @@
+{
+  "name": "salon-client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "start": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "eslint src scripts"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.6",
+    "recharts": "^3.4.1",
+    "lucide-react": "^0.468.0",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "tailwindcss": "^4.1.17",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^16.5.0",
+    "esbuild": "^0.25.12",
+    "@tailwindcss/cli": "^4.1.17"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "salon-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env src/index.js",
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "test": "node --test",
+    "demo": "node scripts/demo.js",
+    "demo:seed": "node scripts/seed-group-demo.js",
+    "test:integration": "node --test test/integration.test.js",
+    "db:indexes": "node --env-file-if-exists=.env scripts/indexes.js",
+    "provision-owner": "node --env-file-if-exists=.env scripts/provision-owner.js",
+    "provision-admin": "node --env-file-if-exists=.env scripts/provision-admin.js",
+    "migration:assess": "node --env-file-if-exists=.env scripts/assess-migration.js",
+    "demo:credentials": "node scripts/show-demo-credentials.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1170.0",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.22.0",
+    "mongoose": "^8.20.0",
+    "nodemailer": "^10.6.0",
+    "sharp": "^0.35.5",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^10.4.3",
+    "supertest": "^7.1.4"
+  }
+}

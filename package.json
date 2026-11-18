@@ -1,0 +1,29 @@
+{
+  "name": "salon-management-system",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n api,web \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w client",
+    "test": "npm run test -w server",
+    "check": "npm run lint && npm test",
+    "start": "npm run dev -w client",
+    "demo": "concurrently -k -n api,web \"npm run demo -w server\" \"npm run dev -w client\"",
+    "demo:seed": "npm run demo:seed -w server",
+    "demo:credentials": "npm run demo:credentials -w server",
+    "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=.local/browsers playwright test",
+    "lint": "npm run check -w client && eslint server/src server/scripts server/test api"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "concurrently": "^9.2.1",
+    "prettier": "^3.10.1"
+  }
+}
