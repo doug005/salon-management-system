@@ -100,7 +100,7 @@ before(
         "post",
         "/api/admin/professionals",
         admin,
-      ).send(account(name));
+      ).send({ ...account(name), whatsappNumber: "+26656903048" });
       assert.equal(created.status, 201, JSON.stringify(created.body));
       const logged = await request(app)
         .post("/api/auth/login")
@@ -226,6 +226,35 @@ test("services and role checks preserve snapshots, validate durations and restri
     403,
   );
 });
+test("professional account setup requires and normalizes a valid international WhatsApp number", async () => {
+  assert.equal(
+    (
+      await auth("post", "/api/admin/professionals", admin).send(
+        account("NoWhatsApp"),
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await auth("post", "/api/admin/professionals", admin).send({
+        ...account("InvalidWhatsApp"),
+        whatsappNumber: "+266123",
+      })
+    ).status,
+    400,
+  );
+  const created = await auth("post", "/api/admin/professionals", admin).send({
+    ...account("NormalizedWhatsApp"),
+    whatsappNumber: "+266 56903048",
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  assert.equal(
+    (await ProfessionalProfile.findOne({ professional: created.body.id }))
+      .whatsappNumber,
+    "+26656903048",
+  );
+});
 let appointment, payment;
 test("concurrent booking: exactly one overlapping reservation succeeds; availability excludes occupied slots", async () => {
   const results = await Promise.all([
@@ -239,7 +268,23 @@ test("concurrent booking: exactly one overlapping reservation succeeds; availabi
   );
   appointment = results.find((r) => r.status === 201).body;
   assert.equal(await Slot.countDocuments({ appointment: appointment._id }), 4);
-  assert.equal(appointment.status, "awaiting_payment");
+  assert.equal(appointment.status, "pending_confirmation");
+  assert.match(appointment.reference, /^SAL-[A-F0-9]{24}$/);
+  const appointmentListing = await auth("get", "/api/appointments", customer);
+  assert.equal(
+    appointmentListing.body.items.find((item) => item._id === appointment._id)
+      .paymentStatus,
+    "awaiting_verification",
+  );
+  assert.ok(
+    await Notification.exists({
+      professional: professional.user.id,
+      scope: "business",
+      title: "New booking request",
+      message: { $regex: appointment.reference },
+    }),
+  );
+  assert.equal(appointmentListing.body.items.find((item) => item._id === appointment._id).status, "pending_confirmation");
   const slots = await request(app)
     .get("/api/public/availability")
     .query({
@@ -287,6 +332,17 @@ test("manual payment record does not confirm; foreign professional verification 
     ).status,
     404,
   );
+  await Payment.updateOne({ _id: payment._id }, { $set: { amountLisente: 4999 } });
+  assert.equal(
+    (
+      await auth("post", `/api/payments/${payment._id}/review`, professional).send({
+        action: "verify",
+        note: "Synthetic mismatched fee must not verify",
+      })
+    ).status,
+    409,
+  );
+  await Payment.updateOne({ _id: payment._id }, { $set: { amountLisente: 5000 } });
   const reviews = await Promise.all(
     [1, 2].map(() =>
       auth("post", `/api/payments/${payment._id}/review`, professional).send({
@@ -300,6 +356,15 @@ test("manual payment record does not confirm; foreign professional verification 
     (await Appointment.findById(appointment._id)).status,
     "confirmed",
   );
+  const confirmationNotice = await Notification.findOne({
+    recipient: customer.user.id,
+    title: "Appointment confirmed",
+    message: { $regex: appointment.reference },
+  });
+  assert.ok(confirmationNotice);
+  assert.match(confirmationNotice.message, /DEMO test service/);
+  assert.match(confirmationNotice.message, /Booking fee paid: M 50\.00/);
+  assert.match(confirmationNotice.message, /WhatsApp: \+26656903048/);
   assert.equal(
     await Payment.countDocuments({
       appointment: appointment._id,
@@ -760,6 +825,47 @@ test("notification delivery failure is logged and safely retried without reversi
   assert.equal(envelope.to, account("Customer").email.toLowerCase());
   assert.match(envelope.html, /No real customer contacted/);
 });
+test("confirmation email failure is recorded without undoing verified payment or appointment", async () => {
+  await Notification.updateMany({ status: "pending" }, { $set: { status: "simulated" } });
+  const booked = await auth("post", "/api/appointments", customer).send(
+    booking({ startsAt: futureSlot(6) }),
+  );
+  assert.equal(booked.status, 201);
+  const recorded = await auth("post", "/api/payments", professional).send({
+    appointment: booked.body._id,
+    amountLisente: booked.body.feeLisente,
+    method: "mobile_money_agent",
+    reference: "EMAIL-FAILURE-SYNTHETIC",
+    kind: "booking_fee",
+  });
+  assert.equal(recorded.status, 201, JSON.stringify(recorded.body));
+  await Notification.updateMany({ status: "pending" }, { $set: { status: "simulated" } });
+  const verification = await auth(
+    "post",
+    `/api/payments/${recorded.body._id}/review`,
+    professional,
+  ).send({ action: "verify", note: "Synthetic receipt independently confirmed." });
+  assert.equal(verification.status, 200);
+  await deliverPending(
+    {
+      EMAIL_MODE: "smtp",
+      SMTP_HOST: "unused",
+      SMTP_PORT: 587,
+      SMTP_FROM: "salon@example.test",
+    },
+    () => ({ async sendMail() { throw new Error("Synthetic SMTP failure"); } }),
+  );
+  assert.equal((await Appointment.findById(booked.body._id)).status, "confirmed");
+  assert.equal((await Payment.findById(recorded.body._id)).status, "paid");
+  const confirmation = await Notification.findOne({
+    recipient: customer.user.id,
+    title: "Appointment confirmed",
+    message: { $regex: booked.body.reference },
+  });
+  assert.equal(confirmation.status, "failed");
+  assert.match(confirmation.message, /Booking reference:/);
+  assert.match(confirmation.lastError, /Delivery failed/);
+});
 test("deterministic finance distinguishes booked value, rejected records and received money", () => {
   const summary = financialSummary(
     [
@@ -1145,8 +1251,17 @@ test("professionals own availability, booking settings, WhatsApp and publication
   ];
   const body = Object.fromEntries(keys.map((k) => [k, b[k]]));
   body.salonName = "Business B published profile";
-  body.whatsappNumber = "26650000000";
+  body.whatsappNumber = "+266 5000 0000";
   body.bookingFeeLisente = 7500;
+  assert.equal(
+    (
+      await auth("put", "/api/professional/settings", otherProfessional).send({
+        ...body,
+        whatsappNumber: "56903048",
+      })
+    ).status,
+    400,
+  );
   assert.equal(
     (
       await auth("put", "/api/professional/settings", otherProfessional).send({
@@ -1190,9 +1305,25 @@ test("professionals own availability, booking settings, WhatsApp and publication
     "/api/public/professionals/" + otherProfessional.user.id,
   );
   assert.equal(publicB.status, 200);
-  assert.equal(publicB.body.whatsappNumber, "26650000000");
+  assert.equal(publicB.body.whatsappNumber, "+26650000000");
   assert.equal(publicB.body.email, b.email);
   assert.equal(publicB.body.password, undefined);
+  await models.ProfessionalProfile.updateOne(
+    { professional: otherProfessional.user.id },
+    { $set: { whatsappNumber: "" } },
+  );
+  assert.equal(
+    (
+      await auth("post", "/api/appointments", customer).send(
+        booking({ professional: otherProfessional.user.id, service: serviceB._id, startsAt: futureSlot(6), policyVersion: updated.body.policyVersion }),
+      )
+    ).status,
+    409,
+  );
+  await models.ProfessionalProfile.updateOne(
+    { professional: otherProfessional.user.id },
+    { $set: { whatsappNumber: "+26650000000" } },
+  );
 });
 test("same professional slot conflicts but separate professionals may reserve the same time and receipt reference", async () => {
   const newCustomer = await register("CrossBusinessCustomer");
@@ -1232,6 +1363,7 @@ test("same professional slot conflicts but separate professionals may reserve th
     [201, 201],
     both.map((r) => JSON.stringify(r.body)).join("\n"),
   );
+  assert.notEqual(both[0].body.reference, both[1].body.reference);
   for (const [index, actor] of [professional, otherProfessional].entries()) {
     const fee = both[index].body.feeLisente;
     const payment = await auth("post", "/api/payments", actor).send({
@@ -1424,7 +1556,7 @@ test("inconsistent payment relationships are quarantined from listings and repor
     !listing.body.items.some((p) => p._id === String(broken.insertedId)),
   );
   const report = await auth("get", "/api/reports", professional);
-  assert.equal(report.body.receivedLisente, 25000);
+  assert.equal(report.body.receivedLisente, 30000);
   const raw = await Payment.collection.findOne({ _id: broken.insertedId });
   assert.equal(raw.amountLisente, 888888); // Quarantine never deletes a suspicious historical record.
 });

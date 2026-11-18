@@ -5,6 +5,7 @@ import { useState } from "react";
 import { request } from "./api.js";
 import { useAuth, useData } from "./state.jsx";
 import { Collection, Feedback, Loading } from "./operations.jsx";
+import { normalizeInternationalPhone } from "./phone.js";
 export function PlatformOverview() {
   const state = useData("/admin/overview");
   const activity = useData("/audit?limit=5");
@@ -70,11 +71,18 @@ export function PlatformAccounts() {
   async function create(e) {
     e.preventDefault();
     const form = e.currentTarget;
+    const whatsappNumber = normalizeInternationalPhone(
+      new FormData(form).get("whatsappNumber"),
+    );
+    if (!whatsappNumber) {
+      setError("Enter a valid international WhatsApp number, including country code.");
+      return;
+    }
     setBusy(true);
     try {
       await request("/admin/professionals", {
         method: "POST",
-        body: Object.fromEntries(new FormData(form)),
+        body: { ...Object.fromEntries(new FormData(form)), whatsappNumber },
       });
       setError("");
       setMessage(
@@ -122,6 +130,22 @@ export function PlatformAccounts() {
             required
             minLength={12}
           />
+        </label>
+        <label>
+          WhatsApp number (international)
+          <input
+            name="whatsappNumber"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            placeholder="+266 56903048"
+            required
+            maxLength={40}
+            aria-describedby="professional-whatsapp-help"
+          />
+          <small id="professional-whatsapp-help">
+            Include the country code. Example: +266 56903048.
+          </small>
         </label>
         <button className="button" disabled={busy}>
           Create professional

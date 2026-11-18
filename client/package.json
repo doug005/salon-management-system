@@ -10,19 +10,20 @@
     "check": "eslint src scripts"
   },
   "dependencies": {
+    "express": "^5.2.1",
+    "libphonenumber-js": "^1.13.16",
+    "lucide-react": "^0.468.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.6",
-    "recharts": "^3.4.1",
-    "lucide-react": "^0.468.0",
-    "express": "^5.2.1"
+    "recharts": "^3.4.1"
   },
   "devDependencies": {
-    "tailwindcss": "^4.1.17",
+    "@tailwindcss/cli": "^4.1.17",
+    "esbuild": "^0.25.12",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^16.5.0",
-    "esbuild": "^0.25.12",
-    "@tailwindcss/cli": "^4.1.17"
+    "tailwindcss": "^4.1.17"
   }
 }

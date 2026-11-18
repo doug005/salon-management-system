@@ -59,6 +59,7 @@ export function ProfessionalPublicProfile() {
             {profile.address && <p className="discovery-subtitle">{profile.address}</p>}
             <p>{profile.description || "Explore available services and get in touch."}</p>
             {profile.phone && <div className="detail-fact"><small>PHONE</small><strong>{profile.phone}</strong></div>}
+            {profile.whatsappNumber && <div className="detail-fact"><small>WHATSAPP</small><strong>{profile.whatsappNumber}</strong></div>}
             {profile.email && <div className="detail-fact"><small>EMAIL</small><strong>{profile.email}</strong></div>}
             <div className="detail-actions">
               <Link className="button" to={`/book?professional=${encodeURIComponent(id)}`} state={{ returnTo: location.pathname, returnLabel: "← Back to professional profile" }}>Book an appointment ↗</Link>

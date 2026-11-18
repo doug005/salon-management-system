@@ -3,9 +3,10 @@ import { tx, audit, fail } from "./business.js";
 export async function createProfessionalAccount(data, actor) {
   if (actor?.role !== "admin" || !actor.active)
     fail(403, "Only admin may create professional accounts.");
+  const { whatsappNumber, ...account } = data;
   return tx(async (session) => {
     const [user] = await User.create(
-      [{ ...data, role: "professional", createdBy: actor._id }],
+      [{ ...account, role: "professional", createdBy: actor._id }],
       { session },
     );
     await ProfessionalProfile.create(
@@ -14,6 +15,7 @@ export async function createProfessionalAccount(data, actor) {
           professional: user._id,
           salonName: "Unpublished professional business",
           published: false,
+          whatsappNumber,
         },
       ],
       { session },

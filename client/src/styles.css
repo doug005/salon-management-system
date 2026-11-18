@@ -1778,6 +1778,41 @@ body { background: var(--salon-background); }
 .public-site h2 { font-size: clamp(21px, 2vw, 27px); }
 .public-site h3 { font-size: 17px; }
 .public-site p, .public-site small { color: var(--salon-muted); }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  overflow: auto;
+  background: rgb(28 24 34 / 58%);
+}
+.booking-confirmation-dialog {
+  width: min(100%, 520px);
+  max-height: min(90dvh, 760px);
+  overflow: auto;
+  background: #fff;
+  color: #25232b;
+  border: 1px solid #dedce4;
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 18px 56px rgb(22 16 32 / 24%);
+}
+.booking-confirmation-dialog dl {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.75fr) minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 18px 0;
+}
+.booking-confirmation-dialog dt { color: #605c69; }
+.booking-confirmation-dialog dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.booking-confirmation-dialog p { margin: 14px 0; }
+@media (max-width: 480px) {
+  .booking-confirmation-dialog { padding: 18px; }
+  .booking-confirmation-dialog dl { grid-template-columns: 1fr; gap: 3px; }
+  .booking-confirmation-dialog dd { margin-bottom: 8px; }
+}
 .public-site a { color: var(--salon-accent); }
 .public-site .announcement {
   background: #f0eaf7;

@@ -10,6 +10,7 @@ import {
   GuestCustomer,
   Audit,
   Notification,
+  ProfessionalProfile,
 } from "./models.js";
 import {
   professionalSettings,
@@ -190,6 +191,11 @@ export async function reserve(input, actor) {
   )
     fail(404, "Service or professional unavailable.");
   const business = await settings(provider._id);
+  if (!business.whatsappNumber)
+    fail(
+      409,
+      "This professional must complete a valid WhatsApp number before accepting bookings.",
+    );
   if (actor.role === "customer" && !business.published)
     fail(404, "Professional unavailable.");
   if (input.policyVersion !== business.policyVersion)
@@ -197,10 +203,12 @@ export async function reserve(input, actor) {
   const guest = actor.role === "professional" ? input.guestCustomer : undefined;
   if (guest && input.customer) fail(400, "Choose a registered customer or phone customer, not both.");
   const customer = actor.role === "customer" ? actor._id : input.customer;
+  let bookingCustomerName = guest?.name || actor.name || "Customer";
   if (!guest) {
     if (!customer) fail(400, "Select a customer or enter phone booking details.");
     const person = await User.findOne({ _id: customer, role: "customer", active: true });
     if (!person) fail(400, "Select an active customer.");
+    bookingCustomerName = person.name;
 
     // Professionals may only book registered customers already
     // associated with their own business.
@@ -224,7 +232,7 @@ export async function reserve(input, actor) {
     const [app] = await Appointment.create(
       [
         {
-          reference: `SL-${randomBytes(6).toString("hex").toUpperCase()}`,
+          reference: `SAL-${randomBytes(12).toString("hex").toUpperCase()}`,
           ...(customer ? { customer } : {}),
           ...(guest ? { guestCustomer: guest } : {}),
           professional: provider._id,
@@ -244,6 +252,7 @@ export async function reserve(input, actor) {
           policyAcceptedAt: new Date(),
           holdExpiresAt: new Date(Date.now() + business.holdMinutes * 60000),
           notes: input.notes,
+          status: "pending_confirmation",
         },
       ],
       { session },
@@ -275,10 +284,17 @@ export async function reserve(input, actor) {
       session,
       app.professional,
     );
+    await notify(
+      provider._id,
+      "New booking request",
+      `${app.reference}: ${bookingCustomerName} requested ${app.serviceName} for ${app.startsAt.toISOString()}. Booking fee ${app.feeLisente} lisente is arranged outside the website and must be manually verified before confirmation.`,
+      session,
+      provider._id,
+    );
     if (customer) await notify(
       customer,
       "Booking request received",
-      `${app.reference}: awaiting manual payment verification. This is not a confirmed appointment.`,
+      `${app.reference}: pending confirmation. Arrange the booking fee with the professional; payment is not recorded or confirmed by WhatsApp.`,
       session,
       app.professional,
     );
@@ -564,6 +580,21 @@ export async function reviewPayment(id, input, actor) {
         409,
         "Booking is closed or expired. Do not confirm; reconcile funds manually.",
       );
+    if (input.action === "verify" && payment.kind === "booking_fee") {
+      if (payment.amountLisente !== app.feeLisente)
+        fail(409, "Recorded booking fee does not match the appointment snapshot.");
+      const expectedSlots = slotsFor(app.startsAt, app.endsAt).length;
+      const heldSlots = await Slot.countDocuments({
+        appointment: app._id,
+        professional,
+      }).session(session);
+      if (
+        app.status !== "pending_confirmation" ||
+        (app.holdExpiresAt && +app.holdExpiresAt <= Date.now()) ||
+        heldSlots !== expectedSlots
+      )
+        fail(409, "Booking is no longer eligible for confirmation. Reconcile any received funds manually.");
+    }
     payment.reviewNote = input.note;
     if (input.action === "request_info") {
       await payment.save({ session });
@@ -625,17 +656,30 @@ export async function reviewPayment(id, input, actor) {
       session,
       app.professional,
     );
-    if (app.customer) await notify(
-      app.customer,
-      input.action === "verify"
-        ? payment.kind === "booking_fee"
-          ? "Appointment confirmed"
-          : "Payment received"
-        : "Payment rejected",
-      `${app.reference}: ${input.action === "verify" ? "funds independently verified by authorised personnel" : input.note}.`,
-      session,
-      app.professional,
-    );
+    if (app.customer) {
+      if (input.action === "verify" && payment.kind === "booking_fee") {
+        const local = localParts(app.startsAt);
+        const [customer, business] = await Promise.all([
+          User.findById(app.customer).select("name").session(session),
+          ProfessionalProfile.findOne({ professional: app.professional }).session(session),
+        ]);
+        await notify(
+          app.customer,
+          "Appointment confirmed",
+          `Hello ${customer?.name || "Customer"}, your appointment is confirmed. Business: ${business?.salonName || "Professional"}. Service: ${app.serviceName}. Booking reference: ${app.reference}. Date and time: ${local.date} ${local.clock} (Africa/Maseru). Booking fee paid: M ${(payment.amountLisente / 100).toFixed(2)}. Status: Confirmed. Professional phone: ${business?.phone || "not provided"}. WhatsApp: ${business?.whatsappNumber || "not provided"}.`,
+          session,
+          app.professional,
+        );
+      } else {
+        await notify(
+          app.customer,
+          input.action === "verify" ? "Payment received" : "Payment rejected",
+          `${app.reference}: ${input.action === "verify" ? "funds independently verified by authorised personnel" : input.note}.`,
+          session,
+          app.professional,
+        );
+      }
+    }
     return payment;
   });
 }

@@ -251,6 +251,11 @@ test("admin creates and activates only a synthetic professional through account 
     .getByLabel("Email", { exact: true })
     .fill(`ui-professional-${suffix}@example.test`);
   await page.getByLabel("Initial password").fill("Synthetic-ui-password-123");
+  const whatsapp = page.getByLabel("WhatsApp number (international)");
+  await whatsapp.fill("invalid number");
+  await page.getByRole("button", { name: "Create professional", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("valid international WhatsApp number");
+  await whatsapp.fill("+266 56903048");
   await page
     .getByRole("button", { name: "Create professional", exact: true })
     .click();

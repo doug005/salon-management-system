@@ -481,7 +481,7 @@ export function createApp(config) {
       })
         .sort({ startsAt: 1 })
         .limit(10)
-        .populate("customer", "name"),
+        .populate("customer", "name phone"),
     });
   });
   app.get(
@@ -562,12 +562,46 @@ export function createApp(config) {
       scope.status = z
         .enum(Appointment.schema.path("status").enumValues)
         .parse(req.query.status);
-    res.json(
-      await list(Appointment, scope, req, [
-        { path: "customer", select: "name email" },
+    const result = await list(Appointment, scope, req, [
+        { path: "customer", select: "name email phone" },
         { path: "professional", select: "name" },
-      ]),
-    );
+      ]);
+    const ids = result.items.map((item) => item._id);
+    const scopedPayments =
+      req.user.role === "professional"
+        ? businessScope(req.user)
+        : await paymentScope(req.user);
+    const payments = ids.length
+      ? await Payment.find({
+          ...scopedPayments,
+          appointment: { $in: ids },
+        })
+          .sort({ createdAt: -1 })
+          .select("appointment kind status amountLisente method verifiedAt")
+          .lean()
+      : [];
+    const paymentByAppointment = new Map();
+    for (const payment of payments) {
+      if (payment.kind !== "booking_fee" || paymentByAppointment.has(String(payment.appointment))) continue;
+      paymentByAppointment.set(String(payment.appointment), payment);
+    }
+    res.json({
+      ...result,
+      items: result.items.map((item) => {
+        const payment = paymentByAppointment.get(String(item._id));
+        return {
+          ...item.toObject(),
+          paymentStatus:
+            payment?.status ||
+            (item.status === "pending_confirmation"
+              ? "awaiting_verification"
+              : "awaiting_payment"),
+          paymentAmountLisente: payment?.amountLisente,
+          paymentMethod: payment?.method,
+          paymentVerifiedAt: payment?.verifiedAt,
+        };
+      }),
+    });
   });
   app.post("/api/appointments", businessOrCustomer, async (req, res) =>
     res.status(201).json(await reserve(v.booking.parse(req.body), req.user)),

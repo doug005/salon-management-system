@@ -67,7 +67,7 @@ for (const [key, name] of [
   let user = await User.findOne({ email: credentials[key].email });
   if (!user)
     user = await createProfessionalAccount(
-      { ...credentials[key], name },
+      { ...credentials[key], name, whatsappNumber: "+26656903048" },
       admin,
     );
   if (user.role !== "professional")
@@ -78,8 +78,11 @@ for (const [key, name] of [
   if (profile.salonName === "Unpublished professional business") {
     profile.salonName = name;
     profile.published = true;
-    await profile.save();
   }
+  // This is a dedicated synthetic database; both named demo professionals use
+  // the requested test contact. No real deployment account is modified here.
+  profile.whatsappNumber = "+26656903048";
+  await profile.save();
   if (!(await Service.exists({ professional: user._id })))
     await Service.create({
       professional: user._id,

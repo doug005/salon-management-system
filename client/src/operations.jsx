@@ -1,5 +1,5 @@
 import { DataTable } from "./dashboard.jsx";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   BarChart,
@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { request, money, dateTime, acceptSession, mediaUrl } from "./api.js";
 import { useAuth, useData } from "./state.jsx";
+import { normalizeInternationalPhone } from "./phone.js";
 export function Feedback({ error, message }) {
   return (
     <>
@@ -50,14 +51,14 @@ export function WhatsApp({ appointment }) {
       <p>Professional WhatsApp contact is not configured or not published.</p>
     );
   const message = appointment
-    ? `Hello, please assist with booking ${appointment.reference}: ${appointment.serviceName}, ${dateTime(appointment.startsAt)} (Africa/Maseru). Booking fee ${money(appointment.feeLisente)}. I understand this message does not confirm payment.`
+    ? `Hello, I would like to book an appointment.\n\nService: ${appointment.serviceName}\nDate and time: ${dateTime(appointment.startsAt)} (Africa/Maseru)\nBooking Reference: ${appointment.reference}\nBooking Fee: ${money(appointment.feeLisente)}\n\nPlease let me know how I can complete the booking fee payment. This message does not confirm payment.`
     : "Hello, I would like assistance with a visit and external manual payment.";
   return (
     <a
       className="button"
       target="_blank"
       rel="noreferrer"
-      href={`https://wa.me/${business.whatsappNumber}?text=${encodeURIComponent(message)}`}
+      href={`https://wa.me/${String(business.whatsappNumber).replace(/\D/g, "")}?text=${encodeURIComponent(message)}`}
     >
       Open WhatsApp
     </a>
@@ -77,7 +78,10 @@ export function Booking({ embedded = false }) {
     [guestPhone, setGuestPhone] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [created, setCreated] = useState(null);
+    [created, setCreated] = useState(null),
+    [confirming, setConfirming] = useState(false);
+  const submitting = useRef(false);
+  const formRef = useRef(null);
   const professional = own ? session.user.id : selectedProfessional;
   const professionals = useData("/public/professionals");
   const services = useData(
@@ -104,29 +108,48 @@ export function Booking({ embedded = false }) {
   );
   const business = professional ? profile.data : null;
   const selected = services.data?.items.find((s) => s._id === service);
-  async function submit(e) {
+  function submit(e) {
     e.preventDefault();
+    setError("");
+    setConfirming(true);
+  }
+  async function confirmBooking() {
+    if (submitting.current || !formRef.current) return;
+    submitting.current = true;
+    const whatsappWindow = !own ? window.open("about:blank", "_blank") : null;
+    if (whatsappWindow) whatsappWindow.opener = null;
     setBusy(true);
     setError("");
     try {
-      setCreated(
-        await request("/appointments", {
-          method: "POST",
-          body: {
-            professional,
-            service,
-            startsAt: time,
-            acceptPolicy: true,
-            policyVersion: business.policyVersion,
-            ...(own ? bookingMode === "phone" ? { guestCustomer: { name: guestName, phone: guestPhone } } : { customer } : {}),
-            notes: new FormData(e.currentTarget).get("notes"),
-          },
-        }),
-      );
+      const saved = await request("/appointments", {
+        method: "POST",
+        body: {
+          professional,
+          service,
+          startsAt: time,
+          acceptPolicy: true,
+          policyVersion: business.policyVersion,
+          ...(own
+            ? bookingMode === "phone"
+              ? { guestCustomer: { name: guestName, phone: guestPhone } }
+              : { customer }
+            : {}),
+          notes: new FormData(formRef.current).get("notes"),
+        },
+      });
+      setCreated(saved);
+      setConfirming(false);
+      if (whatsappWindow && business.whatsappNumber) {
+        const name = own ? guestName || "Customer" : session.user.name;
+        const text = `Hello, I would like to book an appointment.\n\nName: ${name}\nService: ${saved.serviceName}\nDate and time: ${dateTime(saved.startsAt)} (Africa/Maseru)\nService Price: ${money(saved.priceLisente)}\nBooking Reference: ${saved.reference}\nBooking Fee: ${money(saved.feeLisente)}\n\nPlease let me know how I can complete the booking fee payment.`;
+        whatsappWindow.location.href = `https://wa.me/${String(business.whatsappNumber).replace(/\D/g, "")}?text=${encodeURIComponent(text)}`;
+      } else if (whatsappWindow) whatsappWindow.close();
     } catch (err) {
+      whatsappWindow?.close();
       setError(err.message);
     } finally {
       setBusy(false);
+      submitting.current = false;
     }
   }
   return (
@@ -155,27 +178,34 @@ export function Booking({ embedded = false }) {
         </div>
       ) : created ? (
         <div className="panel">
-          <h2>Booking request received</h2>
+          <h2>Booking request saved</h2>
           <p>
             Reference: <strong>{created.reference}</strong>
           </p>
           <p>
-            {created.serviceName} · {dateTime(created.startsAt)}
+            {created.serviceName} · {dateTime(created.startsAt)} · {money(created.priceLisente)}
           </p>
           <p>
-            Booking fee {money(created.feeLisente)} · Total{" "}
-            {money(created.totalLisente)}
+            Booking fee {money(created.feeLisente)} · Total {money(created.totalLisente)}
           </p>
-          <p>
-            Hold expires {dateTime(created.holdExpiresAt)} · Awaiting Payment
-          </p>
-          <WhatsApp appointment={created} />
+          <p>Appointment status: Pending Confirmation · Payment status: Awaiting Verification.</p>
+          <p>Payment is arranged outside this website; no payment is recorded until the professional enters the actual receipt. WhatsApp will not send the message or verify payment. The appointment is confirmed only after the professional independently verifies actual receipt.</p>
+          {!own && business?.whatsappNumber && (
+            <a
+              className="button"
+              target="_blank"
+              rel="noreferrer"
+              href={`https://wa.me/${String(business.whatsappNumber).replace(/\D/g, "")}?text=${encodeURIComponent(`Hello, I would like to book an appointment.\n\nName: ${session.user.name}\nService: ${created.serviceName}\nDate and time: ${dateTime(created.startsAt)} (Africa/Maseru)\nService Price: ${money(created.priceLisente)}\nBooking Reference: ${created.reference}\nBooking Fee: ${money(created.feeLisente)}\n\nPlease let me know how I can complete the booking fee payment.`)}`}
+            >
+              Continue on WhatsApp
+            </a>
+          )}
           <Link to={own ? "/professional/appointments" : "/account"}>
             View appointments
           </Link>
         </div>
       ) : (
-        <form className="panel form-grid" onSubmit={submit}>
+        <form ref={formRef} className="panel form-grid" onSubmit={submit}>
           <Loading state={services} />
           {own ? (
             <p>You are booking for your own business only.</p>
@@ -278,6 +308,11 @@ export function Booking({ embedded = false }) {
             </select>
           </label>
           <Feedback error={slots.error || profile.error} />
+          {professional && !business?.whatsappNumber && !profile.loading && (
+            <p className="error" role="alert">
+              This professional must add a valid WhatsApp number before online booking requests are available.
+            </p>
+          )}
           {day && service && slots.data?.slots?.length === 0 && (
             <p>No available times for this professional.</p>
           )}
@@ -315,16 +350,43 @@ export function Booking({ embedded = false }) {
             </div>
           )}
           <Feedback error={error} />
-          <button className="button" disabled={busy || !time || !business}>
-            {busy ? "Submitting…" : "Request booking"}
+          <button className="button" disabled={busy || !time || !business || !business.whatsappNumber}>
+            Request Book
           </button>
         </form>
+      )}
+      {confirming && !created && (
+        <div className="modal-backdrop">
+          <section
+            className="panel booking-confirmation-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="booking-confirmation-title"
+          >
+            <h2 id="booking-confirmation-title">Are you sure you want to book?</h2>
+            <dl>
+              <dt>Professional</dt><dd>{business?.salonName || session?.user.name}</dd>
+              <dt>Service</dt><dd>{selected?.name || "—"}</dd>
+              <dt>Appointment</dt><dd>{time ? dateTime(time) : "—"}</dd>
+              <dt>Service price</dt><dd>{selected ? money(selected.priceLisente) : "—"}</dd>
+              <dt>Booking fee</dt><dd>{business ? money(business.bookingFeeLisente) : "—"}</dd>
+            </dl>
+            <p>Confirming creates a pending request. Payment is arranged separately and is never confirmed by WhatsApp.</p>
+            <div className="record-actions">
+              <button type="button" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
+              <button type="button" className="button" disabled={busy} onClick={confirmBooking}>
+                {busy ? "Saving request…" : "Confirm"}
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </section>
   );
 }
 const statuses = {
   awaiting_payment: "Awaiting Payment",
+  unpaid: "Awaiting Payment",
   pending_confirmation: "Pending Confirmation",
   confirmed: "Confirmed",
   in_progress: "In progress",
@@ -494,10 +556,21 @@ export function Appointments({ initialStatus = "", pending = false }) {
               Customer: {item.customer?.name || item.guestCustomer?.name || "—"} · Professional:{" "}
               {item.professional?.name || "—"}
             </p>
+            {session.user.role === "professional" && (
+              <p>
+                Customer contact: {item.customer?.phone || item.guestCustomer?.phone || "Phone not provided"}
+                {item.customer?.email ? ` · ${item.customer.email}` : ""}
+              </p>
+            )}
             <p>
               Total {money(item.totalLisente)} · Booking fee{" "}
               {money(item.feeLisente)}
             </p>
+            <p>
+              Payment status: <Badge value={item.paymentStatus || "awaiting_payment"} />
+              {item.paymentAmountLisente !== undefined && ` · ${money(item.paymentAmountLisente)}`}
+            </p>
+            {item.createdAt && <p>Request received {dateTime(item.createdAt)}</p>}
             {item.holdExpiresAt &&
               !["cancelled", "completed"].includes(item.status) && (
                 <p>Hold expires {dateTime(item.holdExpiresAt)}</p>
@@ -568,6 +641,98 @@ export function Appointments({ initialStatus = "", pending = false }) {
           </>
         )}
       </Collection>
+    </>
+  );
+}
+export function PendingConfirmations() {
+  const appointments = useData("/appointments?status=pending_confirmation&limit=100");
+  const payments = useData("/payments?status=awaiting_verification&limit=100");
+  const history = useData("/appointments?status=confirmed&limit=20");
+  const [selected, setSelected] = useState(null);
+  const [verified, setVerified] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const awaiting = payments.data?.items || [];
+  async function confirm() {
+    if (!selected || !verified || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await request(`/payments/${selected.payment._id}/review`, {
+        method: "POST",
+        body: {
+          action: "verify",
+          note: "Professional independently confirmed actual booking-fee receipt.",
+        },
+      });
+      setSelected(null);
+      setVerified(false);
+      setMessage("Payment verified and appointment confirmed. Customer notification is queued according to email settings.");
+      appointments.reload();
+      payments.reload();
+      history.reload();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <p>Requests remain pending until you have actually received and independently checked the booking fee. WhatsApp messages and receipt screenshots are not proof of funds.</p>
+      <Feedback error={error} message={message} />
+      <Loading state={appointments} />
+      <Loading state={payments} />
+      {appointments.data?.items.length === 0 && <p>No pending booking confirmations.</p>}
+      {appointments.data?.items.map((item) => {
+        const payment = awaiting.find((entry) => entry.kind === "booking_fee" && String(entry.appointment?._id) === String(item._id));
+        return (
+          <article className="record panel" key={item._id}>
+            <div className="record-heading">
+              <h2>{item.reference}</h2>
+              <Badge value={item.status} />
+            </div>
+            <p><strong>{item.customer?.name || item.guestCustomer?.name || "Customer"}</strong> · {item.serviceName}</p>
+            <p>{dateTime(item.startsAt)} · Service {money(item.priceLisente)} · Booking fee {money(item.feeLisente)}</p>
+            <p>Payment status: <Badge value={item.paymentStatus || "awaiting_payment"} /> · Appointment status: <Badge value={item.status} /></p>
+            <p>Customer contact: {item.customer?.phone || item.guestCustomer?.phone || "Phone not provided"}{item.customer?.email ? ` · ${item.customer.email}` : ""}</p>
+            <p>Request received {dateTime(item.createdAt)}</p>
+            {payment ? (
+              <>
+                <p>Recorded receipt: {payment.method} · {money(payment.amountLisente)} · {payment.reference}</p>
+                <button className="button" onClick={() => { setSelected({ appointment: item, payment }); setVerified(false); }}>
+                  Confirm Payment &amp; Appointment
+                </button>
+              </>
+            ) : (
+              <p>No payment receipt is recorded. After receiving the fee, record the actual method and receipt reference in Payments; this request cannot be confirmed yet.</p>
+            )}
+          </article>
+        );
+      })}
+      <section className="panel dashboard-section">
+        <h2>Recent confirmation history</h2>
+        {history.data?.items.length ? history.data.items.slice(0, 10).map((item) => (
+          <p key={item._id}><strong>{item.reference}</strong> · {item.serviceName} · {dateTime(item.startsAt)} · {item.customer?.name || "Customer"} · Confirmed</p>
+        )) : <p>No confirmed appointments yet.</p>}
+      </section>
+      {selected && (
+        <div className="modal-backdrop">
+          <section className="panel booking-confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-confirmation-title">
+            <h2 id="payment-confirmation-title">Confirm payment and appointment</h2>
+            <p>Booking {selected.appointment.reference} · {selected.appointment.customer?.name || selected.appointment.guestCustomer?.name || "Customer"}</p>
+            <p>{selected.appointment.serviceName} · {dateTime(selected.appointment.startsAt)}</p>
+            <p>Recorded booking fee: <strong>{money(selected.payment.amountLisente)}</strong> via {selected.payment.method} · Receipt {selected.payment.reference}</p>
+            <label className="checkbox"><input type="checkbox" checked={verified} onChange={(event) => setVerified(event.target.checked)} />I independently verified that this booking fee was actually received.</label>
+            <p>Confirming updates the payment and appointment atomically and notifies the customer. Do not rely on WhatsApp claims or screenshots.</p>
+            <div className="record-actions">
+              <button type="button" disabled={busy} onClick={() => setSelected(null)}>Cancel</button>
+              <button type="button" className="button" disabled={busy || !verified} onClick={confirm}>{busy ? "Confirming…" : "Confirm Payment & Appointment"}</button>
+            </div>
+          </section>
+        </div>
+      )}
     </>
   );
 }
@@ -1042,6 +1207,7 @@ export function Payments({ pending = false }) {
               <option value="cash">Cash</option>
               <option value="bank_transfer">Bank transfer</option>
               <option value="mobile_money_manual">Manual mobile money</option>
+              <option value="mobile_money_agent">Mobile money agent</option>
             </select>
           </label>
           <label>
@@ -1387,13 +1553,21 @@ function SettingsForm({ initial }) {
   async function submit(e) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+    const whatsappNumber = normalizeInternationalPhone(
+      form.get("whatsappNumber"),
+    );
+    if (!whatsappNumber) {
+      setError("Enter a valid international WhatsApp number, including country code.");
+      setMessage("");
+      return;
+    }
     try {
       const body = {
         published: form.has("published"),
         salonName: form.get("salonName"),
         description: form.get("description"),
         demo: form.has("demo"),
-        whatsappNumber: form.get("whatsappNumber"),
+        whatsappNumber,
         phone: form.get("phone"),
         email: form.get("email"),
         address: form.get("address"),
@@ -1443,14 +1617,19 @@ function SettingsForm({ initial }) {
         ["address", "Address"],
         ["phone", "Phone"],
         ["email", "Email"],
-        ["whatsappNumber", "WhatsApp international digits (no +)"],
+        ["whatsappNumber", "WhatsApp number (international format)"],
       ].map(([key, label]) => (
         <label key={key}>
           {label}
           <input
             name={key}
+            type={key === "whatsappNumber" ? "tel" : "text"}
+            inputMode={key === "whatsappNumber" ? "tel" : undefined}
+            autoComplete={key === "whatsappNumber" ? "tel" : undefined}
             defaultValue={initial[key]}
             maxLength={key === "description" ? 2000 : 500}
+            required={key === "whatsappNumber"}
+            placeholder={key === "whatsappNumber" ? "+266 56903048" : undefined}
           />
         </label>
       ))}

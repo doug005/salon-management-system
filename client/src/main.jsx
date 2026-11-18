@@ -50,6 +50,7 @@ import {
   Booking,
   WhatsApp,
   Appointments,
+  PendingConfirmations,
   Manage,
   Payments,
   Reports,
@@ -736,7 +737,7 @@ function WorkspacePage() {
   ) : key === "appointments" ? (
     <Appointments />
   ) : key === "pending-confirmations" ? (
-    <Appointments key="pending-appointments" pending />
+    <PendingConfirmations />
   ) : ["customers", "services", "expenses"].includes(key) ? (
     <Manage key={key} kind={key} />
   ) : key === "payments" ? (

@@ -174,7 +174,7 @@ const paymentSchema = new Schema(
     currency: { type: String, enum: ["LSL"], default: "LSL" },
     method: {
       type: String,
-      enum: ["cash", "bank_transfer", "mobile_money_manual"],
+      enum: ["cash", "bank_transfer", "mobile_money_manual", "mobile_money_agent"],
       required: true,
     },
     status: {
@@ -341,6 +341,11 @@ professionalProfileSchema.add({
   professional: { ...ref("User"), unique: true },
   published: { type: Boolean, default: false },
   photo: ref("BusinessMedia", false),
+  whatsappNumber: {
+    type: String,
+    required: true,
+    match: /^\+[1-9]\d{7,14}$/,
+  },
 });
 export const ProfessionalProfile = model(
   "ProfessionalProfile",

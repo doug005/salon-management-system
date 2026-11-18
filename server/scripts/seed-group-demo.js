@@ -133,7 +133,7 @@ export async function seedGroupDemo() {
         demo: true,
         currency: "LSL",
         timeZone: "Africa/Maseru",
-        whatsappNumber: "26650000000",
+        whatsappNumber: "+26656903048",
         phone: "+266 5000 0000",
         email: professional.email,
         address: "Maseru, Lesotho · demonstration location",

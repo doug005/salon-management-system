@@ -135,6 +135,7 @@ function useLocalClock() {
 export function ProfessionalOverview() {
   const now = useLocalClock();
   const stats = useData("/professional/overview");
+  const profile = useData("/professional/settings");
   const calendar = useAppointmentCalendar();
   const today = (calendar.data || [])
     .filter((a) => localDate(a.startsAt) === localDate(now))
@@ -151,6 +152,11 @@ export function ProfessionalOverview() {
         <Link to="/professional/availability">Manage availability</Link>
       </div>
       <Loading state={stats} />
+      {!profile.loading && profile.data && !profile.data.whatsappNumber && (
+        <p className="notice" role="alert">
+          Add a valid international WhatsApp number before accepting online booking requests. <Link to="/professional/settings">Complete business settings</Link>
+        </p>
+      )}
       <Loading state={calendar} />
       {stats.data && (
         <div className="stats">

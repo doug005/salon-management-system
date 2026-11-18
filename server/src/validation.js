@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
 export const id = z
   .string()
   .regex(/^[a-f\d]{24}$/i, "Invalid record identifier");
@@ -14,6 +15,19 @@ export const email = z
   .email()
   .max(254)
   .transform((v) => v.toLowerCase());
+export const internationalWhatsApp = z
+  .string()
+  .trim()
+  .min(1)
+  .max(40)
+  .transform((value, context) => {
+    const parsed = parsePhoneNumberFromString(value, { extract: false });
+    if (!parsed?.isValid()) {
+      context.addIssue({ code: "custom", message: "Enter a valid international WhatsApp number, including country code." });
+      return z.NEVER;
+    }
+    return parsed.number;
+  });
 export const profile = z
   .object({
     name: z.string().trim().min(2).max(100),
@@ -42,7 +56,9 @@ export const service = z
     active: z.boolean().default(true),
   })
   .strict();
-export const professionalAccount = register;
+export const professionalAccount = register.extend({
+  whatsappNumber: internationalWhatsApp,
+});
 export const accountStatus = z.object({ active: z.boolean() }).strict();
 export const availabilityProfile = z
   .object({
@@ -65,7 +81,7 @@ export const settings = z
     salonName: z.string().trim().min(2).max(100),
     description: z.string().max(2000),
     demo: z.boolean(),
-    whatsappNumber: z.string().regex(/^(?:[1-9]\d{7,14})?$/),
+    whatsappNumber: internationalWhatsApp,
     phone: z.string().max(50),
     email: z.union([z.literal(""), email]),
     address: z.string().max(500),
@@ -106,7 +122,7 @@ export const payment = z
   .object({
     appointment: id,
     amountLisente: amount.refine((v) => v > 0),
-    method: z.enum(["cash", "bank_transfer", "mobile_money_manual"]),
+    method: z.enum(["cash", "bank_transfer", "mobile_money_manual", "mobile_money_agent"]),
     reference: z.string().trim().min(3).max(100),
     kind: z.enum(["booking_fee", "balance"]),
     evidenceUrl: safeUrl.default(""),

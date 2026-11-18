@@ -10,7 +10,7 @@ All protected APIs require an access JWT backed by a live session/current suppor
 | GET `/api/auth/me`, PATCH `/profile`, POST `/profile/password` | Current user's identity/name/phone/password; no role/ownership editing |
 | GET `/api/admin/overview` | Admin account counts only; no bookings or finance |
 | GET `/api/admin/accounts` | Admin account-management projection; paginated/searchable; no business/finance joins |
-| POST `/api/admin/professionals` | Admin only; name/email/password/optional phone; server assigns role and creator, creates unpublished profile |
+| POST `/api/admin/professionals` | Admin only; name/email/password and required valid international `whatsappNumber`; server normalizes to E.164, assigns role/creator and creates unpublished profile |
 | PATCH `/api/admin/accounts/:id` | Admin activation/deactivation only; token version changes revoke access and refresh authority, including after reactivation; cannot deactivate current admin session |
 | GET/PUT `/api/admin/settings` | Admin shared platform name/description/demo; cannot set professional fees or read business reports |
 | GET `/api/public/settings` | Shared platform data only |
@@ -18,22 +18,24 @@ All protected APIs require an access JWT backed by a live session/current suppor
 | GET `/api/public/services?professional=id` | Active services owned by published/active professionals; optional owner filter |
 | GET `/api/public/availability?service=id&professional=id&date=YYYY-MM-DD` | Validates service owner matches published professional |
 | GET `/api/professional/overview` | Own counts, pending confirmations and upcoming bookings |
-| GET/PUT `/api/professional/settings` | Own business profile, published flag, hours/closures, contact/WhatsApp, fee/deduction/hold/policy/version; GET includes own photo URL |
+| GET/PUT `/api/professional/settings` | Own business profile, published flag, hours/closures, required valid international `whatsappNumber` (normalized to E.164), fee/deduction/hold/policy/version; GET includes own photo URL |
 | GET/PUT `/api/professional/availability` | Own weekday/work-start/work-end schedule |
 | GET `/api/professional/availability/slots?service=id&date=...` | Own service only, including unpublished business; owner derived from session |
 | GET/POST `/api/services`, PATCH `/api/services/:id` | Professional only; own records and server-assigned ownership |
 | PUT/DELETE `/api/professional/profile/photo`; `/api/professional/services/:id/image` | Professional-only 5 MiB PNG/JPEG/WebP upload/removal, normalized to WebP; service/profile ownership from session. Public bytes use checked `/api/public/professionals/:id/photo` and `/api/public/services/:id/image` routes |
 | GET/POST `/api/customers` | Professional only; own ProfessionalCustomer relationships, not global customer directory |
-| GET/POST `/api/appointments`, POST `/:id/action` | Customer own bookings or professional own business; no admin. Booking body now requires `professional`, not `staff` |
+| GET/POST `/api/appointments`, POST `/:id/action` | Customer own bookings or professional own business; no admin. New customer requests use a `SAL-` reference, reserve the slot as `pending_confirmation`, and notify the owning professional; WhatsApp opens only after the client confirms and the API successfully saves. |
 | GET `/api/payments` | Professional owned valid appointment/payment pairs or customer own valid receipts; no admin |
-| POST `/api/payments`, POST `/:id/review` | Owning professional only, including manual verify/reject/request_info; no admin or cross-professional access |
+| POST `/api/payments`, POST `/:id/review` | Owning professional only, including manual verify/reject/request_info; no admin or cross-professional access. Methods: cash, bank transfer, manual mobile money or mobile-money agent. Verification requires a recorded receipt and atomically marks fee paid/appointment confirmed; duplicate or expired booking verification is rejected. |
 | GET/POST `/api/expenses`, GET `/api/reports` | Professional own business only; no admin. Financial exports inherit report scope |
 | GET `/api/audit` | Admin platform events without business ownership; professional own business events; no customer |
 | GET `/api/notifications` | Own scoped notifications; professionals own business events, admin own platform/personal, customer own personal/business |
 | POST `/api/notifications/:id/retry` | Owning professional business delivery failures only |
 | `/api/staff`, `/api/settings` | 410 legacy shared management disabled; no compatibility privilege fallback |
 
-Account creation body: `{name,email,password,phone?}`. Professional public profile uses the existing business form field `salonName` as its display name. Editable business settings are the documented prior settings payload plus `published`; professional ownership is never included in an editable body. Service, expense, payment and appointment business fields retain existing validation and manual-money state transitions; the new professional scope is mandatory and server-controlled.
+Account creation body: `{name,email,password,phone?,whatsappNumber}` for professional accounts. The WhatsApp number must be a valid international number and is stored in E.164 (example `+26656903048`). Professional public profile uses the existing business form field `salonName` as its display name and displays its WhatsApp contact. Editable business settings include the required number plus `published`; professional ownership is never included in an editable body. Service, expense, payment and appointment business fields retain existing validation and manual-money state transitions; professional ownership is mandatory and server-controlled.
+
+The pending booking's `Awaiting Verification` UI state is not a financial receipt. The professional records the actual external amount/method/reference only after it is received. WhatsApp does not send automatically or change payment state. The professional then independently verifies the recorded fee; only then does the backend confirm the appointment and queue a detailed customer confirmation email/notification. Email delivery failure is tracked and cannot roll back the committed payment or appointment.
 
 Cross-business record IDs return 404 or role denial without foreign details. Admin financial operations return 403 regardless of any retained legacy verifier flag. Unknown/legacy owner/staff roles return a migration-required 403 on login, refresh or protected access; old documents remain unchanged.
 

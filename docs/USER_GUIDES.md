@@ -36,12 +36,13 @@ Real installation: configure Atlas, JWT secret, CLIENT_ORIGIN and a random one-t
 ## Customer workflow
 
 1. Register with your own name/email and a password of at least 12 characters (maximum 72 UTF-8 bytes). Log in to view Your salon account.
-2. Browse Services, then Book Appointment. Select service, staff, date and available local time. Read and accept the current booking fee and policy before submitting.
-3. Save the unique booking reference. A request holds time temporarily; it is not final confirmation. Note the hold expiry.
-4. Use Open WhatsApp if configured. It only opens a pre-filled message: you decide whether to send it. Arrange payment directly with the salon. This app never moves money.
-5. Watch appointment/payment statuses in your account. Only the salon's independent verification produces Confirmed/Paid. If the hold expires first, the slot is released; contact the salon to reconcile any late external payment rather than assuming a reservation exists.
-6. Reschedule/cancel within the configured self-service window. Contact the salon if the window has closed. Closed bookings cannot be reopened. Policy snapshots remain available on the record.
-7. Edit your profile or change password from Profile. Log out after using a shared device. Refresh normally retains your session through a secure rotating cookie; after expiry sign in again.
+2. Browse professionals and services, then choose a professional, service, date and available local time. Read the fee and policy.
+3. Select **Request Book** and review the professional, service, date/time, price and booking fee in the confirmation dialog. **Cancel** creates no booking. **Confirm** creates one saved pending request and shows its unique `SAL-` reference.
+4. The site opens a prefilled WhatsApp chat to that selected professional only after the booking is saved. WhatsApp does not send the message; review it and press Send yourself if you want to contact the professional. If it does not open, use **Continue on WhatsApp** on the saved request. Reopening the link does not create another booking.
+5. Arrange the booking fee with the professional outside the website. The professional records the actual receipt method/amount/reference and independently verifies received funds. A WhatsApp conversation, claim or screenshot does not mark payment paid.
+6. Watch appointment/payment statuses in your account. The appointment is Confirmed only after professional verification; the existing notification/email worker queues the confirmation with delivery status. If the hold expires first, the slot is released; contact the salon to reconcile any late external payment rather than assuming a reservation exists.
+7. Reschedule/cancel within the configured self-service window. Contact the salon if the window has closed. Closed bookings cannot be reopened. Policy snapshots remain available on the record.
+8. Edit your profile or change password from Profile. Log out after using a shared device. Refresh normally retains your session through a secure rotating cookie; after expiry sign in again.
 
 ## Data and privacy
 
