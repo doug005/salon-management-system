@@ -40,5 +40,7 @@ export async function verifyGoogleIdToken(token, clientId) {
       claims.email_verified !== true || typeof claims.email !== 'string' || !claims.email.includes('@')) {
     throw new Error('Invalid or expired Google credential.');
   }
-  return { sub: claims.sub, email: claims.email.toLowerCase(), name: String(claims.name || claims.email.split('@')[0]).slice(0, 100) };
+  if (typeof claims.nonce !== 'string' || claims.nonce.length < 32 || claims.nonce.length > 200)
+    throw new Error('Google credential is missing a valid one-time nonce.');
+  return { sub: claims.sub, email: claims.email.toLowerCase(), name: String(claims.name || claims.email.split('@')[0]).slice(0, 100), nonce: claims.nonce };
 }

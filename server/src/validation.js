@@ -12,10 +12,22 @@ export const password = z
     "Password must fit within 72 UTF-8 bytes",
   );
 export const email = z
-  .email()
+  .string()
+  .trim()
   .max(254)
-  .transform((v) => v.toLowerCase());
-export const internationalWhatsApp = z
+  .pipe(z.email())
+  .transform((value) => value.toLowerCase());
+export const personName = z
+  .string()
+  .trim()
+  .min(2)
+  .max(100)
+  .refine((value) => /[\p{L}\p{M}]/u.test(value), "Name must include at least one letter.")
+  .regex(
+    /^[\p{L}\p{M}]+(?:[ '\u2019\u02bc\-]+[\p{L}\p{M}]+)*$/u,
+    "Use letters, spaces, apostrophes, or hyphens for the name.",
+  );
+const internationalNumber = (label) => z
   .string()
   .trim()
   .min(1)
@@ -23,18 +35,18 @@ export const internationalWhatsApp = z
   .transform((value, context) => {
     const parsed = parsePhoneNumberFromString(value, { extract: false });
     if (!parsed?.isValid()) {
-      context.addIssue({ code: "custom", message: "Enter a valid international WhatsApp number, including country code." });
+      context.addIssue({ code: "custom", message: `Enter a valid international ${label} number, including country code.` });
       return z.NEVER;
     }
     return parsed.number;
   });
+export const internationalPhone = internationalNumber("phone");
+export const internationalWhatsApp = internationalNumber("WhatsApp");
 export const profile = z
   .object({
-    name: z.string().trim().min(2).max(100),
-    phone: z
-      .string()
-      .regex(/^[+\d ()-]{0,30}$/)
-      .default(""),
+    name: personName,
+    phone: z.union([z.literal(""), internationalPhone]).default(""),
+    whatsappNumber: z.union([z.literal(""), internationalWhatsApp]).default(""),
   })
   .strict();
 export const register = profile.extend({ email, password }).strict();
@@ -82,7 +94,7 @@ export const settings = z
     description: z.string().max(2000),
     demo: z.boolean(),
     whatsappNumber: internationalWhatsApp,
-    phone: z.string().max(50),
+    phone: z.union([z.literal(""), internationalPhone]),
     email: z.union([z.literal(""), email]),
     address: z.string().max(500),
     openingHours: z.record(
@@ -111,7 +123,11 @@ export const booking = z
     service: id,
     professional: id,
     customer: id.optional(),
-    guestCustomer: z.object({ name: z.string().trim().min(2).max(100), phone: z.string().trim().regex(/^[+\d ()-]{5,30}$/) }).strict().optional(),
+    guestCustomer: z.object({
+      name: personName,
+      phone: internationalPhone,
+      whatsappNumber: z.union([z.literal(""), internationalWhatsApp]).default(""),
+    }).strict().optional(),
     startsAt: z.iso.datetime({ offset: true }),
     acceptPolicy: z.literal(true),
     policyVersion: z.string().max(100),

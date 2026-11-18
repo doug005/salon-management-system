@@ -44,17 +44,32 @@ test("public professional directory and customer-only registration", async ({
   ).toBeVisible();
   await page.goto("/register");
   await expect(page.getByRole("combobox")).toHaveCount(0);
-  await page.getByLabel("Full name").fill("DEMO Browser Customer");
+  await page.getByLabel("Full name").fill("Customer 9");
   await page
     .getByLabel("Email address")
     .fill(`migration-browser-${Date.now()}@example.test`);
   await page
     .getByLabel("Password", { exact: true })
     .fill("Synthetic-browser-password-123");
+  await page.getByLabel("Confirm password", { exact: true }).fill("Synthetic-browser-password-123");
+  await page.getByLabel("WhatsApp number (optional)").fill("not a phone");
+  let registrationPosts = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/auth/register")) registrationPosts += 1;
+  });
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page).toHaveURL(/account$/);
+  await expect(page.getByLabel("Full name")).toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByLabel("WhatsApp number (optional)")).toHaveAttribute("aria-invalid", "true");
+  expect(registrationPosts).toBe(0);
+  await page.getByLabel("Full name").fill("DEMO Browser Customer");
+  await page.getByLabel("WhatsApp number (optional)").fill("");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page.getByRole("alert")).toContainText("Account created");
+  expect(registrationPosts).toBe(1);
+  await expect(page.getByRole("link", { name: "Request another verification link" })).toBeVisible();
+  await expect(page).toHaveURL(/register$/);
   await page.goto("/admin");
-  await expect(page).toHaveURL(/account$/);
+  await expect(page).toHaveURL(/login$/);
 });
 test("admin account management has no financial workspace or verification controls", async ({
   page,
@@ -108,23 +123,14 @@ test("professionals manage own services, see independent lists, and cannot admin
   await otherPage.getByLabel("Initial password", { exact: true }).fill(isolatedPassword);
   await otherPage.getByLabel("WhatsApp number (international)").fill("+266 56903048");
   await otherPage.getByRole("button", { name: "Create professional", exact: true }).click();
-  await expect(otherPage.getByRole("status")).toContainText("Professional account created");
+  await expect(otherPage.locator('p[role="status"]').filter({ hasText: "Professional account created" })).toBeVisible();
   await otherPage.getByRole("button", { name: "Log out", exact: true }).last().click();
   await otherPage.goto("/login");
   await otherPage.getByLabel("Email address").fill(isolatedEmail);
   await otherPage.getByLabel("Password", { exact: true }).fill(isolatedPassword);
   await otherPage.getByRole("button", { name: "Log in", exact: true }).click();
-  await expect(otherPage).toHaveURL(/\/professional$/);
-  await otherPage.goto("/professional/services");
-  await expect(
-    otherPage.getByRole("heading", {
-      name: "DEMO Signature styling",
-      exact: true,
-    }),
-  ).toHaveCount(0);
-  await expect(
-    otherPage.getByRole("heading", { name, exact: true }),
-  ).toHaveCount(0);
+  await expect(otherPage.getByRole("alert")).toContainText("Verify your email address");
+  await expect(otherPage).toHaveURL(/login$/);
   await other.close();
 });
 test("professional uploads, previews, publishes and removes a service image", async ({ page, browser }) => {
@@ -197,6 +203,11 @@ test("customer confirms a booking, continues on WhatsApp, and only the owner ver
   await expect(
     page.getByRole("heading", { name: "Overview", exact: true }),
   ).toBeVisible();
+  await page.goto("/account/profile");
+  await page.getByLabel("WhatsApp number (optional)").fill("+266 60000001");
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Profile saved");
+  await page.goto("/account");
   await page
     .getByRole("link", { name: "Book a service", exact: true })
     .last()
@@ -228,8 +239,8 @@ test("customer confirms a booking, continues on WhatsApp, and only the owner ver
     if (request.method() === "POST" && request.url().endsWith("/api/appointments"))
       bookingPosts += 1;
   });
-    await page.context().route("https://wa.me/**", (route) =>
-      route.fulfill({ status: 503, contentType: "text/plain", body: "Synthetic WhatsApp unavailable" }),
+  await page.context().route("https://wa.me/**", (route) =>
+    route.fulfill({ status: 503, contentType: "text/plain", body: "Synthetic WhatsApp unavailable" }),
   );
   await page.getByRole("button", { name: "Request Book", exact: true }).click();
   const bookingDialog = page.getByRole("dialog", { name: "Are you sure you want to book?" });
@@ -277,44 +288,50 @@ test("customer confirms a booking, continues on WhatsApp, and only the owner ver
   const context = await browser.newContext();
   const pro = await context.newPage();
   await login(pro, "professional");
-  await expect(
-    pro
-      .getByRole("table", { name: "Upcoming bookings" })
-      .getByText(reference, { exact: true }),
-  ).toBeVisible();
-  await pro.screenshot({
-    path: ".local/dashboard-review/professional-upcoming-desktop.png",
-    fullPage: true,
-  });
-  await pro.goto("/professional/payments");
-  await pro
-    .getByRole("combobox", { name: "Appointment", exact: true })
-    .selectOption({ label: `${reference} · DEMO Signature styling` });
-  await pro.getByLabel("Amount (integer lisente)").fill("5000");
+  await pro.goto("/professional/appointments");
+  const search = pro.getByRole("searchbox", { name: "Search appointments" });
+  await search.fill(reference);
+  const appointmentRow = pro.getByRole("row").filter({ hasText: reference });
+  await expect(appointmentRow).toContainText("Pending Confirmation");
+  await expect(appointmentRow).toContainText("Awaiting Verification");
+  await expect(appointmentRow).toContainText("M 50.00");
+  await appointmentRow.getByRole("button", { name: "View details" }).click();
+  const details = pro.getByRole("dialog");
+  const pendingWhatsApp = details.getByRole("link", { name: "Message Customer on WhatsApp" });
+  await expect(pendingWhatsApp).toHaveAttribute("href", /wa\.me\/26660000001/);
+  await expect(pendingWhatsApp).not.toHaveAttribute("href", /wa\.me\/26656903048/);
+  expect(new URL(await pendingWhatsApp.getAttribute("href")).searchParams.get("text")).toContain("not confirmed yet");
   const receipt = "MIGRATION-E2E-" + Date.now();
-  await pro.getByLabel("Unique receipt / transaction reference").fill(receipt);
-  await pro
-    .getByRole("button", { name: "Record awaiting verification" })
-    .click();
-  const row = pro
-    .locator(".record")
-    .filter({ has: pro.getByRole("heading", { name: receipt, exact: true }) });
-  await expect(
-    row.getByText("Awaiting Verification", { exact: true }),
-  ).toBeVisible();
-  await pro.goto("/professional/pending-confirmations");
-  const pending = pro.locator(".record").filter({ hasText: reference });
-  await expect(pending).toContainText("Awaiting Verification");
-  await expect(pending).toContainText("M 50.00");
-  await pending.getByRole("button", { name: "Confirm Payment & Appointment" }).click();
-  const verifyDialog = pro.getByRole("dialog", { name: "Confirm payment and appointment" });
-  await expect(verifyDialog).toContainText(reference);
-  await expect(verifyDialog).toContainText("M 50.00");
-  await verifyDialog.getByRole("checkbox").check();
-  await verifyDialog.getByRole("button", { name: "Confirm Payment & Appointment" }).click();
-  await expect(pro.getByRole("status")).toContainText("Payment verified and appointment confirmed");
+  await details.getByLabel("Actual receipt / transaction reference").fill(receipt);
+  await details.getByRole("checkbox", { name: /actually received this booking fee/i }).check();
+  await details.getByRole("button", { name: "Record Payment Awaiting Verification" }).click();
+  await expect(details.getByText("Payment is awaiting independent verification")).toBeVisible();
+  await expect(details.locator(".payment-history-row").filter({ hasText: receipt })).toBeVisible();
+  const verifyDialog = details;
+  await verifyDialog.getByRole("checkbox", { name: /actually received/i }).check();
+  const verificationResponse = pro.waitForResponse((response) => response.request().method() === "POST" && response.url().includes("/api/payments/") && response.url().endsWith("/review"));
+  await verifyDialog.getByRole("button", { name: "Verify Payment & Confirm Appointment" }).click();
+  expect((await verificationResponse).status()).toBe(200);
+  await pro.getByRole("button", { name: /Confirmed/ }).click();
+  await expect(pro.getByRole("row").filter({ hasText: reference })).toContainText("Paid");
+  await expect(pro.getByRole("row").filter({ hasText: reference })).toContainText("Confirmed");
+  await pro.getByRole("row").filter({ hasText: reference }).getByRole("button", { name: "View details" }).click();
+  const confirmedDetails = pro.getByRole("dialog");
+  const confirmedWhatsApp = confirmedDetails.getByRole("link", { name: "Message Customer on WhatsApp" });
+  const confirmationText = new URL(await confirmedWhatsApp.getAttribute("href")).searchParams.get("text");
+  expect(confirmationText).toContain("Hello DEMO Customer!");
+  expect(confirmationText).toContain("Your appointment has been confirmed.");
+  expect(confirmationText).toContain("Salon: DEMO Professional One");
+  expect(confirmationText).toContain("Service: DEMO Signature styling");
+  expect(confirmationText).toContain("Booking Reference:");
+  expect(confirmationText).toContain("Thank you for booking with us!");
+  expect(confirmationText).toContain(reference);
+  expect(confirmationText).not.toContain("not confirmed yet");
+  expect(confirmationText).not.toContain("Booking Fee Received");
+  await confirmedDetails.getByRole("button", { name: "Close appointment details" }).click();
   await pro.goto("/professional/payments");
-  await expect(row.getByText("Paid", { exact: true })).toBeVisible();
+  const paymentRow = pro.locator(".record").filter({ has: pro.getByRole("heading", { name: receipt, exact: true }) });
+  await expect(paymentRow.getByText("Paid", { exact: true })).toBeVisible();
   await page.goto("/account/appointments");
   const booking = page.locator(".record").filter({
     has: page.getByRole("heading", { name: reference, exact: true }),

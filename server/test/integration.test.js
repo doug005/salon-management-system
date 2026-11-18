@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import mongoose from "mongoose";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import request from "supertest";
 import { projectRoot } from "../scripts/local-db.js";
 import * as models from "../src/models.js";
@@ -11,6 +12,7 @@ import { createApp } from "../src/app.js";
 import {
   User,
   Session,
+  AuthChallenge,
   Provision,
   Service,
   Appointment,
@@ -25,6 +27,7 @@ import {
   Audit,
 } from "../src/models.js";
 import { settings, expireHolds, financialSummary } from "../src/business.js";
+import { consumeChallenge } from "../src/account-email.js";
 import { deliverPending, template } from "../src/notifications.js";
 let db,
   app,
@@ -35,8 +38,31 @@ let db,
   other,
   service,
   business;
+const emailOutbox = [];
 const origin = "http://localhost:3000",
   secret = "integration-test-secret-at-least-32-characters";
+const googleKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const googleJwk = {
+  ...googleKeys.publicKey.export({ format: "jwk" }),
+  kid: "integration-google-key",
+  use: "sig",
+};
+function googleCredential(nonce, email, sub = "12345678901234567890") {
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", kid: googleJwk.kid })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({
+    iss: "https://accounts.google.com",
+    aud: "test-client-id.apps.googleusercontent.com",
+    sub,
+    email,
+    email_verified: true,
+    name: "Google Test Customer",
+    nonce,
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 300,
+  })).toString("base64url");
+  const message = `${header}.${payload}`;
+  return `${message}.${sign("RSA-SHA256", Buffer.from(message), googleKeys.privateKey).toString("base64url")}`;
+}
 const account = (name) => ({
   name,
   email: name + "@example.test",
@@ -45,8 +71,17 @@ const account = (name) => ({
 const auth = (method, url, session) =>
   request(app)[method](url).set("Authorization", `Bearer ${session.token}`);
 async function register(name) {
-  const res = await request(app).post("/api/auth/register").send(account(name));
-  assert.equal(res.status, 201, JSON.stringify(res.body));
+  const credentials = account(name);
+  await User.create({
+    ...credentials,
+    role: "customer",
+    emailVerified: true,
+    emailVerifiedAt: new Date(),
+  });
+  const res = await request(app)
+    .post("/api/auth/login")
+    .send({ email: credentials.email, password: credentials.password });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
   return res.body;
 }
 function futureSlot(offset = 0) {
@@ -87,7 +122,15 @@ before(
       CLIENT_ORIGIN: origin,
       JWT_SECRET: secret,
       ADMIN_SETUP_TOKEN: secret,
-      EMAIL_MODE: "safe",
+      EMAIL_MODE: "smtp",
+      SMTP_HOST: "test.invalid",
+      SMTP_PORT: 587,
+      SMTP_USER: "synthetic",
+      SMTP_PASSWORD: "synthetic-only",
+      SMTP_FROM: "noreply@example.test",
+      EMAIL_DELIVERY_APPROVED: "yes",
+      GOOGLE_CLIENT_ID: "test-client-id.apps.googleusercontent.com",
+      EMAIL_TRANSPORT_FACTORY: () => ({ async sendMail(message) { emailOutbox.push(message); } }),
     });
     const provision = await request(app)
       .post("/api/auth/provision-admin")
@@ -145,7 +188,7 @@ test("authentication: one-time provisioning, privilege escalation, persistence, 
       await request(app)
         .post("/api/auth/provision-admin")
         .set("Origin", origin)
-        .send({ ...account("Owner2"), setupToken: secret })
+        .send({ ...account("Owner Two"), email: "owner-two@example.test", setupToken: secret })
     ).status,
     409,
   );
@@ -208,6 +251,116 @@ test("authentication: one-time provisioning, privilege escalation, persistence, 
   });
   assert.equal(changed.status, 200);
   assert.equal((await auth("get", "/api/auth/me", other)).status, 401);
+});
+test("new account email verification and single-use password reset are time-limited and secure", async () => {
+  const credentials = {
+    name: "O'Connor-Smith",
+    email: "verified-customer@example.test",
+    password: "Synthetic-unverified-password-123",
+    whatsappNumber: "+266 56903048",
+  };
+  const registration = await request(app)
+    .post("/api/auth/register")
+    .send(credentials);
+  assert.equal(registration.status, 201, JSON.stringify(registration.body));
+  assert.equal(registration.body.token, undefined);
+  assert.equal(registration.body.deliveryStatus, "sent");
+  const unverifiedLogin = await request(app).post("/api/auth/login").send({
+    email: credentials.email,
+    password: credentials.password,
+  });
+  assert.equal(unverifiedLogin.status, 403);
+  const verificationMail = emailOutbox.findLast((mail) => mail.subject.includes("Verify"));
+  const verificationUrl = new URL(verificationMail.text.match(/https?:\/\/\S+/)[0]);
+  const verificationToken = verificationUrl.searchParams.get("token");
+  const verified = await request(app)
+    .post("/api/auth/verify-email")
+    .set("Origin", origin)
+    .send({ token: verificationToken });
+  assert.equal(verified.status, 200);
+  assert.equal((await User.findOne({ email: credentials.email })).emailVerified, true);
+  assert.equal(
+    (await request(app).post("/api/auth/verify-email").set("Origin", origin).send({ token: verificationToken })).status,
+    400,
+  );
+  assert.equal(
+    (await request(app).post("/api/auth/login").send({ email: credentials.email, password: credentials.password })).status,
+    200,
+  );
+
+  const duplicate = await request(app).post("/api/auth/register").send(credentials);
+  assert.equal(duplicate.status, 409);
+  const forgot = await request(app).post("/api/auth/forgot-password").set("Origin", origin).send({ email: credentials.email });
+  assert.equal(forgot.status, 202);
+  const resetMail = emailOutbox.findLast((mail) => mail.subject.includes("Reset"));
+  const resetToken = new URL(resetMail.text.match(/https?:\/\/\S+/)[0]).searchParams.get("token");
+  const nextPassword = "Synthetic-reset-password-456";
+  const reset = await request(app).post("/api/auth/reset-password").set("Origin", origin).send({ token: resetToken, password: nextPassword });
+  assert.equal(reset.status, 200);
+  assert.equal((await request(app).post("/api/auth/reset-password").set("Origin", origin).send({ token: resetToken, password: nextPassword })).status, 400);
+  assert.equal((await request(app).post("/api/auth/login").send({ email: credentials.email, password: credentials.password })).status, 401);
+  assert.equal((await request(app).post("/api/auth/login").send({ email: credentials.email, password: nextPassword })).status, 200);
+});
+test("Google sign-in nonce is short-lived, hashed at rest and consumable once", async () => {
+  const response = await request(app)
+    .post("/api/auth/google/nonce")
+    .set("Origin", origin)
+    .send({});
+  assert.equal(response.status, 200);
+  assert.ok(response.body.nonce.length >= 32);
+  const tokenHash = createHash("sha256").update(response.body.nonce).digest("hex");
+  const stored = await AuthChallenge.findOne({ purpose: "google_nonce", tokenHash });
+  assert.ok(stored);
+  assert.notEqual(stored.tokenHash, response.body.nonce);
+  assert.ok(stored.expiresAt > new Date());
+  assert.ok(await consumeChallenge(response.body.nonce, "google_nonce"));
+  assert.equal(await consumeChallenge(response.body.nonce, "google_nonce"), null);
+});
+test("Google sign-in requires explicit linking for existing email accounts and never elevates roles", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({ keys: [googleJwk] }),
+    headers: new Headers({ "cache-control": "max-age=300" }),
+  });
+  const nonce = async () => (await request(app)
+    .post("/api/auth/google/nonce")
+    .set("Origin", origin)
+    .send({})).body.nonce;
+  try {
+    const firstNonce = await nonce();
+    const existing = await request(app)
+      .post("/api/auth/google")
+      .set("Origin", origin)
+      .send({ credential: googleCredential(firstNonce, account("Customer").email) });
+    assert.equal(existing.status, 409);
+    assert.equal((await User.findById(customer.user.id)).googleSub, undefined);
+
+    const linkNonce = await nonce();
+    const linked = await auth("post", "/api/auth/google/link", customer)
+      .set("Origin", origin)
+      .send({ credential: googleCredential(linkNonce, account("Customer").email) });
+    assert.equal(linked.status, 200, JSON.stringify(linked.body));
+    assert.equal((await User.findById(customer.user.id)).googleSub, "12345678901234567890");
+
+    const loginNonce = await nonce();
+    const loggedIn = await request(app)
+      .post("/api/auth/google")
+      .set("Origin", origin)
+      .send({ credential: googleCredential(loginNonce, account("Customer").email) });
+    assert.equal(loggedIn.status, 200, JSON.stringify(loggedIn.body));
+    assert.equal(loggedIn.body.user.role, "customer");
+
+    const professionalNonce = await nonce();
+    const professionalGoogle = await request(app)
+      .post("/api/auth/google")
+      .set("Origin", origin)
+      .send({ credential: googleCredential(professionalNonce, account("ProfessionalA").email, "22345678901234567890") });
+    assert.equal(professionalGoogle.status, 403);
+    assert.equal((await User.findById(professional.user.id)).googleSub, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 test("services and role checks preserve snapshots, validate durations and restrict professional permissions", async () => {
   assert.equal(
@@ -276,6 +429,17 @@ test("concurrent booking: exactly one overlapping reservation succeeds; availabi
       .paymentStatus,
     "awaiting_verification",
   );
+  const professionalAppointmentListing = await auth(
+    "get",
+    "/api/appointments",
+    professional,
+  );
+  assert.equal(
+    professionalAppointmentListing.body.items.find((item) => item._id === appointment._id)
+      .customerWhatsAppNumber,
+    "",
+    "a professional's WhatsApp number must never be substituted for a customer's",
+  );
   assert.ok(
     await Notification.exists({
       professional: professional.user.id,
@@ -303,6 +467,54 @@ test("concurrent booking: exactly one overlapping reservation succeeds; availabi
       ).send({ action: "complete" })
     ).status,
     409,
+  );
+});
+test("customer WhatsApp contact is validated and snapshotted without email inference", async () => {
+  const invalid = await auth("patch", "/api/profile", customer).send({
+    name: account("Customer").name,
+    phone: "",
+    whatsappNumber: "not a phone",
+  });
+  assert.equal(invalid.status, 400);
+  const savedProfile = await auth("patch", "/api/profile", customer).send({
+    name: account("Customer").name,
+    phone: "",
+    whatsappNumber: "+266 60000001",
+  });
+  assert.equal(savedProfile.status, 200);
+  assert.equal(savedProfile.body.user.whatsappNumber, "+26660000001");
+  const booked = await auth("post", "/api/appointments", customer).send(
+    booking({ startsAt: futureSlot(2) }),
+  );
+  assert.equal(booked.status, 201, JSON.stringify(booked.body));
+  assert.equal(booked.body.customerWhatsAppNumber, "+26660000001");
+  await auth("patch", "/api/profile", customer).send({
+    name: account("Customer").name,
+    phone: "",
+    whatsappNumber: "+26660000002",
+  });
+  const professionalView = await auth("get", "/api/appointments", professional);
+  assert.equal(
+    professionalView.body.items.find((item) => item._id === booked.body._id)
+      .customerWhatsAppNumber,
+    "+26660000001",
+  );
+  assert.equal(
+    (await auth("get", "/api/appointments", otherProfessional)).body.items
+      .some((item) => item._id === booked.body._id),
+    false,
+  );
+  const search = await auth("get", "/api/appointments", professional).query({
+    search: "Customer",
+    from: booked.body.startsAt.slice(0, 10),
+    to: booked.body.startsAt.slice(0, 10),
+    limit: 100,
+  });
+  assert.ok(search.body.items.some((item) => item._id === booked.body._id));
+  assert.equal(
+    (await auth("post", `/api/appointments/${booked.body._id}/action`, customer)
+      .send({ action: "cancel", reason: "Synthetic WhatsApp snapshot test cleanup" })).status,
+    200,
   );
 });
 test("manual payment record does not confirm; foreign professional verification denied; own professional verification atomic and idempotent", async () => {

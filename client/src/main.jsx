@@ -50,7 +50,6 @@ import {
   Booking,
   WhatsApp,
   Appointments,
-  PendingConfirmations,
   Manage,
   Payments,
   Reports,
@@ -60,6 +59,9 @@ import {
   AuditHistory,
 } from "./operations.jsx";
 import { roleHome } from "./roles.js";
+import { ProfessionalAppointments } from "./appointment-table.jsx";
+import { normalizeInternationalPhone } from "./phone.js";
+import { VerifyEmailPage, ForgotPasswordPage, ResetPasswordPage } from "./auth-forms.jsx";
 import {
   PlatformOverview,
   PlatformAccounts,
@@ -440,26 +442,91 @@ function ContactCards() {
 function Contact() {
   return <section className="container section"><PageTitle label="OUR PROFESSIONALS" title="Find your professional." /><ContactCards /></section>;
 }
+function validateAuthField(field, value, register) {
+  const text = String(value || "");
+  if (field === "name" && register) {
+    const name = text.trim();
+    if (name.length < 2) return "Enter a name with at least 2 characters.";
+    if (name.length > 100) return "Name must be 100 characters or fewer.";
+    if (!/^[\p{L}\p{M}]+(?:[ '\u2019\u02bc-]+[\p{L}\p{M}]+)*$/u.test(name))
+      return "Use letters, spaces, apostrophes, or hyphens for the name.";
+  }
+  if (field === "email") {
+    const email = text.trim();
+    if (email.length > 254 || !/^\S+@\S+\.\S+$/.test(email))
+      return "Enter a valid email address.";
+  }
+  if (field === "password") {
+    if (!text.length) return "Enter your password.";
+    if (register && (text.length < 12 || new TextEncoder().encode(text).length > 72))
+      return "Use at least 12 characters and no more than 72 UTF-8 bytes.";
+  }
+  if (field === "whatsappNumber" && register && text && !normalizeInternationalPhone(text))
+    return "Enter a valid international number, including country code, or leave this optional field blank.";
+  return "";
+}
 function AuthPage({ register = false, embedded = false }) {
   const { session, setSession, loading } = useContext(Auth);
   const [error, setError] = useState("");
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+  const formRef = useRef(null);
   if (loading) return <p>Loading session…</p>;
   if (session) return embedded ? null : <Navigate to={roleHome(session.user.role)} replace />;
   async function submit(event) {
     event.preventDefault();
+    const form = event.currentTarget;
+    const values = Object.fromEntries(new FormData(form));
+    const nextErrors = {};
+    if (register) nextErrors.name = validateAuthField("name", values.name, register);
+    const email = String(values.email || "").trim().toLowerCase();
+    nextErrors.email = validateAuthField("email", email, register);
+    nextErrors.password = validateAuthField("password", values.password, register);
+    if (register) nextErrors.whatsappNumber = validateAuthField("whatsappNumber", values.whatsappNumber, register);
+    if (register && values.password !== values.confirmPassword) nextErrors.confirmPassword = "Passwords do not match.";
+    Object.keys(nextErrors).forEach((field) => { if (!nextErrors[field]) delete nextErrors[field]; });
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length) {
+      setError("Please correct the highlighted fields.");
+      form.querySelector('[aria-invalid="true"]')?.focus();
+      return;
+    }
     setBusy(true);
     setError("");
-    const body = Object.fromEntries(new FormData(event.currentTarget));
+    const body = {
+      email,
+      password: values.password,
+      ...(register ? { name: String(values.name || "").trim() } : {}),
+      ...(register && values.whatsappNumber
+        ? { whatsappNumber: normalizeInternationalPhone(values.whatsappNumber) }
+        : {}),
+    };
     try {
       const data = await request(`/auth/${register ? "register" : "login"}`, {
         method: "POST",
         body,
       });
+      if (register && !data.token) {
+        setError(data.message || "Account created. Check your email to verify the address before signing in.");
+        setVerificationPending(true);
+        return;
+      }
       setSession(data);
       navigate(roleHome(data.user.role));
     } catch (err) {
+      const serverFields = Object.fromEntries(
+        Object.entries(err.fieldErrors || {}).filter(([field]) =>
+          ["name", "email", "password", "whatsappNumber"].includes(field),
+        ),
+      );
+      if (Object.keys(serverFields).length) {
+        setFieldErrors((current) => ({ ...current, ...serverFields }));
+        setError("Please correct the highlighted fields.");
+        form.querySelector('[aria-invalid="true"]')?.focus();
+        return;
+      }
       setError(
         err instanceof SyntaxError
           ? "The API is unavailable. Please try again later."
@@ -479,7 +546,7 @@ function AuthPage({ register = false, embedded = false }) {
         <p>{register ? "Discover independent professionals, explore their services and book with confidence." : "Sign in to discover services, manage your bookings and stay in touch with your professional."}</p>
         <small>Private and secure account access</small>
       </div>
-      <form className="panel auth-form studio-auth-form" onSubmit={submit}>
+      <form ref={formRef} noValidate className="panel auth-form studio-auth-form" onSubmit={submit}>
         <p className="studio-kicker">{register ? "CUSTOMER REGISTRATION" : "ACCOUNT SIGN IN"}</p>
         <h2>{register ? "Create your account." : "Welcome back."}</h2>
         {register && (
@@ -491,7 +558,12 @@ function AuthPage({ register = false, embedded = false }) {
               required
               minLength={2}
               maxLength={100}
+              aria-invalid={Boolean(fieldErrors.name)}
+              aria-describedby={fieldErrors.name ? "auth-name-error" : undefined}
+              onBlur={(event) => setFieldErrors((current) => ({ ...current, name: validateAuthField("name", event.target.value, register) }))}
+              onChange={() => setFieldErrors((current) => ({ ...current, name: "" }))}
             />
+            {fieldErrors.name && <small id="auth-name-error" className="field-error" role="alert">{fieldErrors.name}</small>}
           </label>
         )}
         <label>
@@ -502,7 +574,12 @@ function AuthPage({ register = false, embedded = false }) {
             autoComplete="email"
             required
             maxLength={254}
+            aria-invalid={Boolean(fieldErrors.email)}
+            aria-describedby={fieldErrors.email ? "auth-email-error" : undefined}
+            onBlur={(event) => setFieldErrors((current) => ({ ...current, email: validateAuthField("email", event.target.value, register) }))}
+            onChange={() => setFieldErrors((current) => ({ ...current, email: "" }))}
           />
+          {fieldErrors.email && <small id="auth-email-error" className="field-error" role="alert">{fieldErrors.email}</small>}
         </label>
         <label>
           Password
@@ -513,8 +590,19 @@ function AuthPage({ register = false, embedded = false }) {
             required
             minLength={register ? 12 : 1}
             maxLength={register ? 72 : 200}
+            aria-invalid={Boolean(fieldErrors.password)}
+            aria-describedby={fieldErrors.password ? "auth-password-error" : undefined}
+            onBlur={(event) => setFieldErrors((current) => ({ ...current, password: validateAuthField("password", event.target.value, register) }))}
+            onChange={() => setFieldErrors((current) => ({ ...current, password: "" }))}
           />
+          {fieldErrors.password && <small id="auth-password-error" className="field-error" role="alert">{fieldErrors.password}</small>}
         </label>
+        {register && <>
+          <label>Confirm password<input type="password" name="confirmPassword" autoComplete="new-password" required aria-invalid={Boolean(fieldErrors.confirmPassword)} aria-describedby={fieldErrors.confirmPassword ? "auth-confirm-error" : undefined} onChange={() => setFieldErrors((current) => ({ ...current, confirmPassword: "" }))} /></label>
+          {fieldErrors.confirmPassword && <small id="auth-confirm-error" className="field-error" role="alert">{fieldErrors.confirmPassword}</small>}
+          <label>WhatsApp number (optional)<input name="whatsappNumber" type="tel" inputMode="tel" autoComplete="tel" placeholder="+266 56903048" maxLength={40} aria-invalid={Boolean(fieldErrors.whatsappNumber)} aria-describedby={fieldErrors.whatsappNumber ? "auth-whatsapp-error" : "auth-whatsapp-help"} onBlur={(event) => setFieldErrors((current) => ({ ...current, whatsappNumber: validateAuthField("whatsappNumber", event.target.value, register) }))} onChange={() => setFieldErrors((current) => ({ ...current, whatsappNumber: "" }))} /><small id="auth-whatsapp-help">Optional. Used only if you choose to share a WhatsApp contact.</small></label>
+          {fieldErrors.whatsappNumber && <small id="auth-whatsapp-error" className="field-error" role="alert">{fieldErrors.whatsappNumber}</small>}
+        </>}
         {register && (
           <small>Use at least 12 characters, up to 72 UTF-8 bytes.</small>
         )}
@@ -523,6 +611,7 @@ function AuthPage({ register = false, embedded = false }) {
             {error}
           </p>
         )}
+        {verificationPending && <Link to="/verify-email">Request another verification link</Link>}
         <button className="button" disabled={busy}>
           {busy ? "Please wait…" : register ? "Create account" : "Log in"}{" "}
           <ArrowRight size={17} />
@@ -533,6 +622,8 @@ function AuthPage({ register = false, embedded = false }) {
             {register ? "Log in" : "Create an account"}
           </Link>
         </p>
+        {!register && <p><Link className="underlink" to="/forgot-password">Forgot password?</Link></p>}
+        {!register && error.toLowerCase().includes("verify your email") && <p><Link className="underlink" to="/verify-email">Resend verification link</Link></p>}
         <div className="google-auth-separator">Or use your Google account</div>
         <GoogleButton onSession={(data) => { setSession(data); navigate(roleHome(data.user.role)); }} />
         <small>
@@ -735,9 +826,9 @@ function WorkspacePage() {
   ) : key === "advertisements" ? (
     <AdvertisementManagement />
   ) : key === "appointments" ? (
-    <Appointments />
+    <ProfessionalAppointments />
   ) : key === "pending-confirmations" ? (
-    <PendingConfirmations />
+    <ProfessionalAppointments initialTab="pending_confirmation" />
   ) : ["customers", "services", "expenses"].includes(key) ? (
     <Manage key={key} kind={key} />
   ) : key === "payments" ? (
@@ -801,11 +892,14 @@ function App() {
             <Route path="services/:id" element={<ServiceDetail />} />
             <Route path="book" element={<BookingPage />} />
             <Route path="contact" element={<Contact />} />
-            <Route path="login" element={<Navigate to="/#login" replace />} />
+            <Route path="login" element={<AuthPage key="login" />} />
             <Route
               path="register"
               element={<AuthPage key="register" register />}
             />
+            <Route path="verify-email" element={<VerifyEmailPage />} />
+            <Route path="forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="reset-password" element={<ResetPasswordPage />} />
             <Route path="*" element={<NotFound />} />
           </Route>
           <Route path="account" element={<Workspace role="customer" />}>

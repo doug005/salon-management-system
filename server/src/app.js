@@ -18,6 +18,7 @@ import { timingSafeEqual } from "node:crypto";
 import {
   User,
   Session,
+  AuthChallenge,
   Provision,
   Service,
   Appointment,
@@ -66,6 +67,7 @@ import {
   paymentScope,
 } from "./tenancy.js";
 import { createProfessionalAccount } from "./accounts.js";
+import { createChallenge, consumeChallenge, sendAccountEmail } from "./account-email.js";
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 async function list(model, query, req, populate) {
   const { page, limit, search } = v.pageQuery.parse(req.query);
@@ -84,7 +86,24 @@ async function list(model, query, req, populate) {
                 : model === Audit
                   ? "action"
                   : "description";
-    if (model === User)
+    if (model === Appointment) {
+      const matchingCustomers = await User.find({
+        role: "customer",
+        $or: [
+          { name: { $regex: escapeRegex(search), $options: "i" } },
+          { email: { $regex: escapeRegex(search), $options: "i" } },
+          { phone: { $regex: escapeRegex(search), $options: "i" } },
+          { whatsappNumber: { $regex: escapeRegex(search), $options: "i" } },
+        ],
+      }).distinct("_id");
+      query.$or = [
+        { reference: { $regex: escapeRegex(search), $options: "i" } },
+        { serviceName: { $regex: escapeRegex(search), $options: "i" } },
+        { customer: { $in: matchingCustomers } },
+        { "guestCustomer.name": { $regex: escapeRegex(search), $options: "i" } },
+        { "guestCustomer.phone": { $regex: escapeRegex(search), $options: "i" } },
+      ];
+    } else if (model === User)
       query.$or = [
         { name: { $regex: escapeRegex(search), $options: "i" } },
         { email: { $regex: escapeRegex(search), $options: "i" } },
@@ -145,7 +164,7 @@ export function createApp(config) {
     }),
   );
   app.use(
-    ["/api/auth/login", "/api/auth/register", "/api/auth/provision-admin", "/api/auth/google", "/api/auth/google/link"],
+    ["/api/auth/login", "/api/auth/register", "/api/auth/provision-admin", "/api/auth/google", "/api/auth/google/link", "/api/auth/verify-email", "/api/auth/resend-verification", "/api/auth/forgot-password", "/api/auth/reset-password"],
     rateLimit({
       windowMs: 15 * 60 * 1000,
       limit: config.NODE_ENV === "test" ? 1000 : 30,
@@ -155,26 +174,86 @@ export function createApp(config) {
   );
   app.post("/api/auth/register", async (req, res) => {
     const data = v.register.parse(req.body);
-    const user = await tx(async (session) => {
-      const [u] = await User.create([{ ...data, role: "customer" }], {
-        session,
-      });
-      await notify(
-        u._id,
-        "Welcome",
-        "Your salon account is ready. Booking and payments are confirmed separately.",
-        session,
-      );
-      return u;
+    const { token, challenge } = await tx(async (session) => {
+      const [user] = await User.create([{
+        ...data,
+        role: "customer",
+        emailVerified: false,
+        verificationVersion: 1,
+      }], { session });
+      const challenge = await createChallenge(user, "email_verification", session);
+      return { user, ...challenge };
     });
-    res.status(201).json(await startSession(user, res, config));
+    const user = await User.findById(challenge.user);
+    const deliveryStatus = await sendAccountEmail(config, user, "email_verification", token, config.EMAIL_TRANSPORT_FACTORY);
+    res.status(201).json({
+      message: deliveryStatus === "sent"
+        ? "Account created. Check your email and follow the verification link before signing in."
+        : "Account created, but email delivery is not configured or failed. Request a verification link again after email is configured.",
+      deliveryStatus,
+    });
   });
   app.post("/api/auth/login", async (req, res) => {
     const data = v.login.parse(req.body);
     const user = await User.findOne({ email: data.email }).select("+password");
     if (!user?.active || !(await user.comparePassword(data.password)))
       return res.status(401).json({ message: "Invalid email or password." });
+    if (user.emailVerified === false)
+      return res.status(403).json({ message: "Verify your email address before signing in. You can request a new verification link." });
     res.json(await startSession(user, res, config));
+  });
+  app.post("/api/auth/verify-email", requireOrigin(config), async (req, res) => {
+    const { token } = z.object({ token: z.string().min(32).max(200) }).strict().parse(req.body);
+    const user = await tx(async (session) => {
+      const challenge = await consumeChallenge(token, "email_verification", session);
+      if (!challenge?.user) fail(400, "Verification link is invalid or expired. Request a new link.");
+      const account = await User.findOneAndUpdate(
+        { _id: challenge.user, active: true, emailVerified: false },
+        { $set: { emailVerified: true, emailVerifiedAt: new Date() }, $inc: { verificationVersion: 1 } },
+        { new: true, session },
+      );
+      if (!account) fail(409, "Email is already verified or the account is unavailable.");
+      return account;
+    });
+    res.json({ message: "Email verified. You can now sign in.", email: user.email });
+  });
+  app.post("/api/auth/resend-verification", requireOrigin(config), async (req, res) => {
+    const { email } = z.object({ email: v.email }).strict().parse(req.body);
+    const user = await User.findOne({ email, active: true });
+    if (user && user.emailVerified === false) {
+      const { token } = await createChallenge(user, "email_verification");
+      await sendAccountEmail(config, user, "email_verification", token, config.EMAIL_TRANSPORT_FACTORY);
+    }
+    res.status(202).json({ message: "If this account needs verification, a new link will be sent when email delivery is available." });
+  });
+  app.post("/api/auth/forgot-password", requireOrigin(config), async (req, res) => {
+    const { email } = z.object({ email: v.email }).strict().parse(req.body);
+    const user = await User.findOne({ email, active: true });
+    if (user) {
+      const { token } = await createChallenge(user, "password_reset");
+      await sendAccountEmail(config, user, "password_reset", token, config.EMAIL_TRANSPORT_FACTORY);
+    }
+    res.status(202).json({ message: "If an active account uses that email, password reset instructions will be sent when email delivery is available." });
+  });
+  app.post("/api/auth/reset-password", requireOrigin(config), async (req, res) => {
+    const { token, password } = z.object({ token: z.string().min(32).max(200), password: v.password }).strict().parse(req.body);
+    await tx(async (session) => {
+      const challenge = await consumeChallenge(token, "password_reset", session);
+      if (!challenge?.user) fail(400, "Password reset link is invalid or expired. Request another link.");
+      const user = await User.findOne({ _id: challenge.user, active: true }).session(session);
+      if (!user) fail(400, "Password reset link is invalid or expired.");
+      user.password = password;
+      user.tokenVersion += 1;
+      user.passwordResetVersion += 1;
+      await user.save({ session });
+      await Session.deleteMany({ user: user._id }, { session });
+    });
+    res.json({ message: "Password updated. Sign in with your new password." });
+  });
+  app.post("/api/auth/google/nonce", requireOrigin(config), async (_req, res) => {
+    if (!config.GOOGLE_CLIENT_ID) return res.status(404).json({ message: "Google login is not configured." });
+    const { token } = await createChallenge(undefined, "google_nonce");
+    res.json({ nonce: token });
   });
   // Google sign-in never grants elevated roles. Existing email accounts must link
   // from an authenticated session first, preventing email-based account takeover.
@@ -184,13 +263,32 @@ export function createApp(config) {
     let identity;
     try { identity = await verifyGoogleIdToken(credential, config.GOOGLE_CLIENT_ID); }
     catch { return res.status(401).json({ message: "Google authentication failed. Please try again online." }); }
+    if (!(await consumeChallenge(identity.nonce, "google_nonce")))
+      return res.status(401).json({ message: "Google sign-in expired. Start again." });
     let user = await User.findOne({ googleSub: identity.sub });
+    if (user && user.role !== "customer")
+      return res.status(403).json({ message: "Sign in to this professional or administrator account with its password, then link Google from the authenticated profile." });
+    if (user && user.email !== identity.email)
+      return res.status(409).json({ message: "Google account email no longer matches the linked account." });
+    if (user && user.emailVerified === false) {
+      user.emailVerified = true;
+      user.emailVerifiedAt = new Date();
+      await user.save();
+    }
     if (!user) {
-      if (await User.exists({ email: identity.email }))
-        return res.status(409).json({ message: "An account already uses this email. Sign in with your password and link Google in your account first." });
+      const emailAccount = await User.findOne({ email: identity.email });
+      if (emailAccount)
+        return res.status(emailAccount.role === "customer" ? 409 : 403).json({
+          message: emailAccount.role === "customer"
+            ? "An account already uses this email. Sign in with its password, then link Google from your profile."
+            : "Google sign-in cannot create or grant a professional or administrator session. Sign in with the existing account and use its approved recovery options.",
+        });
+    }
+    if (!user) {
       try {
-        user = await User.create({ name: identity.name, email: identity.email,
-          password: randomBytes(48).toString('hex'), googleSub: identity.sub, role: 'customer' });
+        const validName = v.personName.safeParse(identity.name);
+        user = await User.create({ name: validName.success ? validName.data : "Google Customer", email: identity.email,
+          password: randomBytes(48).toString('hex'), googleSub: identity.sub, role: 'customer', emailVerified: true, emailVerifiedAt: new Date() });
       } catch (error) {
         if (error.code === 11000) return res.status(409).json({ message: "Account changed during Google sign-in. Please try again." });
         throw error;
@@ -206,12 +304,14 @@ export function createApp(config) {
     let identity;
     try { identity = await verifyGoogleIdToken(credential, config.GOOGLE_CLIENT_ID); }
     catch { return res.status(401).json({ message: "Google authentication failed." }); }
+    if (!(await consumeChallenge(identity.nonce, "google_nonce")))
+      return res.status(401).json({ message: "Google sign-in expired. Start again." });
     if (identity.email !== req.user.email)
       return res.status(403).json({ message: "Google email must match the account email." });
     if (req.user.googleSub && req.user.googleSub !== identity.sub)
       return res.status(409).json({ message: "A different Google account is already linked." });
     try {
-      await User.updateOne({ _id: req.user._id, active: true }, { $set: { googleSub: identity.sub } });
+      await User.updateOne({ _id: req.user._id, active: true }, { $set: { googleSub: identity.sub, emailVerified: true, emailVerifiedAt: new Date() } });
     } catch (error) {
       if (error.code === 11000) return res.status(409).json({ message: "Google account is already linked elsewhere." });
       throw error;
@@ -250,7 +350,11 @@ export function createApp(config) {
         )
           fail(409, "Initial admin already provisioned.");
         const { setupToken, ...fields } = data;
-        const [u] = await User.create([{ ...fields, role: "admin" }], {
+        const [u] = await User.create([{
+          ...fields,
+          role: "admin",
+          emailVerified: config.NODE_ENV === "test",
+        }], {
           session,
         });
         await Provision.create([{ _id: "initial-admin", admin: u._id }], {
@@ -266,6 +370,14 @@ export function createApp(config) {
         );
         return u;
       });
+      if (user.emailVerified === false) {
+        const { token } = await createChallenge(user, "email_verification");
+        const deliveryStatus = await sendAccountEmail(config, user, "email_verification", token, config.EMAIL_TRANSPORT_FACTORY);
+        return res.status(201).json({
+          message: "Administrator created. Verify the configured email address before signing in.",
+          emailDeliveryStatus: deliveryStatus,
+        });
+      }
       res.status(201).json(await startSession(user, res, config));
     },
   );
@@ -407,11 +519,17 @@ export function createApp(config) {
     });
   });
   app.post("/api/admin/professionals", admin, async (req, res) => {
+    const data = v.professionalAccount.parse(req.body);
     const user = await createProfessionalAccount(
-      v.professionalAccount.parse(req.body),
+      { ...data, emailVerified: config.NODE_ENV === "test" },
       req.user,
     );
-    res.status(201).json(publicUser(user));
+    let deliveryStatus = "not_required";
+    if (user.emailVerified === false) {
+      const { token } = await createChallenge(user, "email_verification");
+      deliveryStatus = await sendAccountEmail(config, user, "email_verification", token, config.EMAIL_TRANSPORT_FACTORY);
+    }
+    res.status(201).json({ ...publicUser(user), emailDeliveryStatus: deliveryStatus });
   });
   app.patch("/api/admin/accounts/:id", admin, async (req, res) => {
     const id = v.parseId(req.params.id),
@@ -474,6 +592,14 @@ export function createApp(config) {
         ...scope,
         status: "pending_confirmation",
       }),
+      appointmentStatuses: Object.fromEntries(
+        await Promise.all(
+          Appointment.schema.path("status").enumValues.map(async (status) => [
+            status,
+            await Appointment.countDocuments({ ...scope, status }),
+          ]),
+        ),
+      ),
       upcoming: await Appointment.find({
         ...scope,
         status: "confirmed",
@@ -558,12 +684,36 @@ export function createApp(config) {
   app.get("/api/appointments", businessOrCustomer, async (req, res) => {
     const scope = appointmentScope(req.user);
     await expireHolds();
-    if (req.query.status)
-      scope.status = z
+    const dateRange = z
+      .object({ from: z.iso.date().optional(), to: z.iso.date().optional() })
+      .strict()
+      .parse({ from: req.query.from, to: req.query.to });
+    if (dateRange.from && dateRange.to && dateRange.from > dateRange.to)
+      fail(400, "Start date must be on or before end date.");
+    if (dateRange.from || dateRange.to) {
+      scope.startsAt = {
+        ...(dateRange.from
+          ? { $gte: new Date(`${dateRange.from}T00:00:00+02:00`) }
+          : {}),
+        ...(dateRange.to
+          ? {
+              $lt: new Date(
+                +new Date(`${dateRange.to}T00:00:00+02:00`) + 86400000,
+              ),
+            }
+          : {}),
+      };
+    }
+    if (req.query.status) {
+      const requestedStatus = z
         .enum(Appointment.schema.path("status").enumValues)
         .parse(req.query.status);
+      scope.status = requestedStatus === "confirmed"
+        ? { $in: ["confirmed", "in_progress"] }
+        : requestedStatus;
+    }
     const result = await list(Appointment, scope, req, [
-        { path: "customer", select: "name email phone" },
+        { path: "customer", select: "name email phone whatsappNumber" },
         { path: "professional", select: "name" },
       ]);
     const ids = result.items.map((item) => item._id);
@@ -585,12 +735,24 @@ export function createApp(config) {
       if (payment.kind !== "booking_fee" || paymentByAppointment.has(String(payment.appointment))) continue;
       paymentByAppointment.set(String(payment.appointment), payment);
     }
+    const professionalIds = [
+      ...new Set(result.items.map((item) => String(item.professional?._id || item.professional))),
+    ];
+    const businessProfiles = await ProfessionalProfile.find({
+      professional: { $in: professionalIds },
+    }).select("professional salonName").lean();
+    const businessNames = new Map(
+      businessProfiles.map((profile) => [String(profile.professional), profile.salonName]),
+    );
     res.json({
       ...result,
       items: result.items.map((item) => {
         const payment = paymentByAppointment.get(String(item._id));
         return {
           ...item.toObject(),
+          customerWhatsAppNumber:
+            item.customerWhatsAppNumber ||
+            (req.user.role === "professional" ? "" : undefined),
           paymentStatus:
             payment?.status ||
             (item.status === "pending_confirmation"
@@ -599,6 +761,9 @@ export function createApp(config) {
           paymentAmountLisente: payment?.amountLisente,
           paymentMethod: payment?.method,
           paymentVerifiedAt: payment?.verifiedAt,
+          professionalBusinessName: businessNames.get(
+            String(item.professional?._id || item.professional),
+          ),
         };
       }),
     });
@@ -633,6 +798,8 @@ export function createApp(config) {
   );
   app.get("/api/payments", businessOrCustomer, async (req, res) => {
     const query = await paymentScope(req.user);
+    if (req.query.appointment)
+      query.appointment = v.parseId(req.query.appointment);
     if (req.query.status)
       query.status = z
         .enum(Payment.schema.path("status").enumValues)

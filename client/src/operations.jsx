@@ -64,6 +64,15 @@ export function WhatsApp({ appointment }) {
     </a>
   );
 }
+const personNamePattern = /^[\p{L}\p{M}]+(?:[ '\u2019\u02bc-]+[\p{L}\p{M}]+)*$/u;
+const todayInMaseru = () => new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Africa/Maseru", year: "numeric", month: "2-digit", day: "2-digit",
+}).format(new Date());
+const validCalendarDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(+date) && date.toISOString().slice(0, 10) === value;
+};
 export function Booking({ embedded = false }) {
   const { session, loading } = useAuth();
   const [searchParams] = useSearchParams();
@@ -76,6 +85,8 @@ export function Booking({ embedded = false }) {
     [bookingMode, setBookingMode] = useState("phone"),
     [guestName, setGuestName] = useState(""),
     [guestPhone, setGuestPhone] = useState(""),
+    [guestWhatsApp, setGuestWhatsApp] = useState(""),
+    [fieldErrors, setFieldErrors] = useState({}),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [created, setCreated] = useState(null),
@@ -108,9 +119,38 @@ export function Booking({ embedded = false }) {
   );
   const business = professional ? profile.data : null;
   const selected = services.data?.items.find((s) => s._id === service);
+  function clearFieldError(field) {
+    setFieldErrors((current) => ({ ...current, [field]: "" }));
+  }
   function submit(e) {
     e.preventDefault();
     setError("");
+    const errors = {};
+    if (!professional || !services.data?.items.some((item) => item._id === service && item.active && String(item.professional) === String(professional)))
+      errors.service = "Choose an active service offered by this professional.";
+    if (!validCalendarDate(day) || day < todayInMaseru())
+      errors.day = "Choose a valid date today or later in Africa/Maseru.";
+    if (!slots.data?.slots?.includes(time))
+      errors.time = "Choose one of the currently available appointment times.";
+    if (own && bookingMode === "phone") {
+      const name = guestName.trim();
+      if (name.length < 2 || name.length > 100 || !personNamePattern.test(name))
+        errors.guestName = "Enter a valid customer name using letters, spaces, apostrophes, or hyphens.";
+      if (!normalizeInternationalPhone(guestPhone))
+        errors.guestPhone = "Enter a valid international customer phone number, including country code.";
+      if (guestWhatsApp && !normalizeInternationalPhone(guestWhatsApp))
+        errors.guestWhatsApp = "Enter a valid international WhatsApp number, including country code, or leave blank.";
+    }
+    if (own && bookingMode === "registered" && !customers.data?.items.some((item) => item._id === customer))
+      errors.customer = "Choose a customer associated with your business.";
+    if (!formRef.current?.querySelector('input[type="checkbox"]')?.checked)
+      errors.policy = "Accept the professional's booking fee and policy to continue.";
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      setError("Please correct the highlighted booking details.");
+      formRef.current?.querySelector('[aria-invalid="true"]')?.focus();
+      return;
+    }
     setConfirming(true);
   }
   async function confirmBooking() {
@@ -131,7 +171,11 @@ export function Booking({ embedded = false }) {
           policyVersion: business.policyVersion,
           ...(own
             ? bookingMode === "phone"
-              ? { guestCustomer: { name: guestName, phone: guestPhone } }
+              ? { guestCustomer: {
+                  name: guestName,
+                  phone: normalizeInternationalPhone(guestPhone),
+                  whatsappNumber: guestWhatsApp ? normalizeInternationalPhone(guestWhatsApp) : "",
+                } }
               : { customer }
             : {}),
           notes: new FormData(formRef.current).get("notes"),
@@ -215,10 +259,13 @@ export function Booking({ embedded = false }) {
               <select
                 required
                 value={professional}
+                aria-invalid={Boolean(fieldErrors.professional)}
+                aria-describedby={fieldErrors.professional ? "booking-professional-error" : undefined}
                 onChange={(e) => {
                   setProfessional(e.target.value);
                   setService("");
                   setTime("");
+                  clearFieldError("professional");
                 }}
               >
                 <option value="">Select professional</option>
@@ -228,6 +275,7 @@ export function Booking({ embedded = false }) {
                   </option>
                 ))}
               </select>
+              {fieldErrors.professional && <small id="booking-professional-error" className="field-error" role="alert">{fieldErrors.professional}</small>}
             </label>
           )}
           {own && <div className="form-grid">
@@ -238,8 +286,9 @@ export function Booking({ embedded = false }) {
               </select>
             </label>
             {bookingMode === "phone" && <>
-              <label>Customer name<input required minLength={2} maxLength={100} value={guestName} onChange={e => setGuestName(e.target.value)} /></label>
-              <label>Phone number<input required minLength={5} maxLength={30} type="tel" value={guestPhone} onChange={e => setGuestPhone(e.target.value)} /></label>
+              <label>Customer name<input required minLength={2} maxLength={100} value={guestName} aria-invalid={Boolean(fieldErrors.guestName)} aria-describedby={fieldErrors.guestName ? "booking-guest-name-error" : undefined} onChange={e => { setGuestName(e.target.value); clearFieldError("guestName"); }} />{fieldErrors.guestName && <small id="booking-guest-name-error" className="field-error" role="alert">{fieldErrors.guestName}</small>}</label>
+              <label>Customer phone contact<input required minLength={5} maxLength={40} type="tel" inputMode="tel" placeholder="+266 …" value={guestPhone} aria-invalid={Boolean(fieldErrors.guestPhone)} aria-describedby={fieldErrors.guestPhone ? "booking-guest-phone-error" : undefined} onChange={e => { setGuestPhone(e.target.value); clearFieldError("guestPhone"); }} />{fieldErrors.guestPhone && <small id="booking-guest-phone-error" className="field-error" role="alert">{fieldErrors.guestPhone}</small>}</label>
+              <label>Customer WhatsApp (optional)<input maxLength={40} type="tel" inputMode="tel" placeholder="+266 …" value={guestWhatsApp} aria-invalid={Boolean(fieldErrors.guestWhatsApp)} aria-describedby={fieldErrors.guestWhatsApp ? "booking-guest-whatsapp-error" : undefined} onChange={e => { setGuestWhatsApp(e.target.value); clearFieldError("guestWhatsApp"); }} />{fieldErrors.guestWhatsApp && <small id="booking-guest-whatsapp-error" className="field-error" role="alert">{fieldErrors.guestWhatsApp}</small>}</label>
             </>}
           </div>}
           {own && bookingMode === "registered" && (
@@ -248,7 +297,9 @@ export function Booking({ embedded = false }) {
               <select
                 required
                 value={customer}
-                onChange={(e) => setCustomer(e.target.value)}
+                aria-invalid={Boolean(fieldErrors.customer)}
+                aria-describedby={fieldErrors.customer ? "booking-customer-error" : undefined}
+                onChange={(e) => { setCustomer(e.target.value); clearFieldError("customer"); }}
               >
                 <option value="">Select your customer</option>
                 {customers.data?.items.map((c) => (
@@ -257,6 +308,7 @@ export function Booking({ embedded = false }) {
                   </option>
                 ))}
               </select>
+              {fieldErrors.customer && <small id="booking-customer-error" className="field-error" role="alert">{fieldErrors.customer}</small>}
             </label>
           )}
           <label>
@@ -265,9 +317,12 @@ export function Booking({ embedded = false }) {
               required
               disabled={!professional}
               value={service}
+              aria-invalid={Boolean(fieldErrors.service)}
+              aria-describedby={fieldErrors.service ? "booking-service-error" : undefined}
               onChange={(e) => {
                 setService(e.target.value);
                 setTime("");
+                clearFieldError("service");
               }}
             >
               <option value="">Select service</option>
@@ -279,24 +334,32 @@ export function Booking({ embedded = false }) {
                   </option>
                 ))}
             </select>
+            {fieldErrors.service && <small id="booking-service-error" className="field-error" role="alert">{fieldErrors.service}</small>}
           </label>
           <label>
             Date
             <input
               type="date"
               required
+              min={todayInMaseru()}
               value={day}
+              aria-invalid={Boolean(fieldErrors.day)}
+              aria-describedby={fieldErrors.day ? "booking-date-error" : undefined}
               onChange={(e) => {
                 setDay(e.target.value);
                 setTime("");
+                clearFieldError("day");
               }}
             />
+            {fieldErrors.day && <small id="booking-date-error" className="field-error" role="alert">{fieldErrors.day}</small>}
           </label>
           <label>
             Available time
             <select
               required
               value={time}
+              aria-invalid={Boolean(fieldErrors.time)}
+              aria-describedby={fieldErrors.time ? "booking-time-error" : undefined}
               onChange={(e) => setTime(e.target.value)}
             >
               <option value="">Select time</option>
@@ -306,6 +369,7 @@ export function Booking({ embedded = false }) {
                 </option>
               ))}
             </select>
+            {fieldErrors.time && <small id="booking-time-error" className="field-error" role="alert">{fieldErrors.time}</small>}
           </label>
           <Feedback error={slots.error || profile.error} />
           {professional && !business?.whatsappNumber && !profile.loading && (
@@ -344,9 +408,10 @@ export function Booking({ embedded = false }) {
                 {business.holdMinutes} minutes
               </p>
               <label className="checkbox">
-                <input type="checkbox" required />I accept this professional's
+                <input type="checkbox" required aria-invalid={Boolean(fieldErrors.policy)} aria-describedby={fieldErrors.policy ? "booking-policy-error" : undefined} onChange={() => clearFieldError("policy")} />I accept this professional's
                 booking fee and policy.
               </label>
+              {fieldErrors.policy && <small id="booking-policy-error" className="field-error" role="alert">{fieldErrors.policy}</small>}
             </div>
           )}
           <Feedback error={error} />
@@ -1561,6 +1626,12 @@ function SettingsForm({ initial }) {
       setMessage("");
       return;
     }
+    const phone = String(form.get("phone") || "").trim();
+    if (phone && !normalizeInternationalPhone(phone)) {
+      setError("Enter the business phone number in international format, including country code, or leave it blank.");
+      setMessage("");
+      return;
+    }
     try {
       const body = {
         published: form.has("published"),
@@ -1568,7 +1639,7 @@ function SettingsForm({ initial }) {
         description: form.get("description"),
         demo: form.has("demo"),
         whatsappNumber,
-        phone: form.get("phone"),
+        phone: phone ? normalizeInternationalPhone(phone) : "",
         email: form.get("email"),
         address: form.get("address"),
         openingHours: Object.fromEntries(
@@ -1623,9 +1694,9 @@ function SettingsForm({ initial }) {
           {label}
           <input
             name={key}
-            type={key === "whatsappNumber" ? "tel" : "text"}
-            inputMode={key === "whatsappNumber" ? "tel" : undefined}
-            autoComplete={key === "whatsappNumber" ? "tel" : undefined}
+            type={["whatsappNumber", "phone"].includes(key) ? "tel" : key === "email" ? "email" : "text"}
+            inputMode={["whatsappNumber", "phone"].includes(key) ? "tel" : undefined}
+            autoComplete={["whatsappNumber", "phone"].includes(key) ? "tel" : undefined}
             defaultValue={initial[key]}
             maxLength={key === "description" ? 2000 : 500}
             required={key === "whatsappNumber"}
@@ -1729,13 +1800,35 @@ function SettingsForm({ initial }) {
 export function Profile() {
   const { session, setSession } = useAuth();
   const [error, setError] = useState(""),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [fieldErrors, setFieldErrors] = useState({});
   async function save(e) {
     e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const name = String(form.get("name") || "").trim();
+    const phone = String(form.get("phone") || "").trim();
+    const whatsappNumber = String(form.get("whatsappNumber") || "").trim();
+    const errors = {};
+    if (name.length < 2 || name.length > 100 || !personNamePattern.test(name))
+      errors.name = "Enter a valid name using letters, spaces, apostrophes, or hyphens.";
+    if (phone && !normalizeInternationalPhone(phone))
+      errors.phone = "Enter a valid international phone number, including country code, or leave blank.";
+    if (whatsappNumber && !normalizeInternationalPhone(whatsappNumber))
+      errors.whatsappNumber = "Enter a valid international WhatsApp number, including country code, or leave blank.";
+    setFieldErrors(errors);
+    if (Object.keys(errors).length) {
+      setError("Please correct the highlighted profile details.");
+      e.currentTarget.querySelector('[aria-invalid="true"]')?.focus();
+      return;
+    }
     try {
       const result = await request("/profile", {
         method: "PATCH",
-        body: Object.fromEntries(new FormData(e.currentTarget)),
+        body: {
+          name,
+          phone: phone ? normalizeInternationalPhone(phone) : "",
+          whatsappNumber: whatsappNumber ? normalizeInternationalPhone(whatsappNumber) : "",
+        },
       });
       setSession({ ...session, user: result.user });
       setMessage("Profile saved.");
@@ -1759,7 +1852,7 @@ export function Profile() {
   return (
     <>
       <Feedback error={error} message={message} />
-      <form className="panel form-grid" onSubmit={save}>
+      <form className="panel form-grid" noValidate onSubmit={save}>
         <h2>Your profile</h2>
         <p>{session.user.email}</p>
         <label>
@@ -1768,13 +1861,24 @@ export function Profile() {
             name="name"
             required
             minLength={2}
+            maxLength={100}
             defaultValue={session.user.name}
+            aria-invalid={Boolean(fieldErrors.name)}
+            aria-describedby={fieldErrors.name ? "profile-name-error" : undefined}
           />
+          {fieldErrors.name && <small id="profile-name-error" className="field-error" role="alert">{fieldErrors.name}</small>}
         </label>
         <label>
           Phone
-          <input name="phone" defaultValue={session.user.phone} />
+          <input name="phone" type="tel" inputMode="tel" autoComplete="tel" maxLength={40} defaultValue={session.user.phone} aria-invalid={Boolean(fieldErrors.phone)} aria-describedby={fieldErrors.phone ? "profile-phone-error" : undefined} />
+          {fieldErrors.phone && <small id="profile-phone-error" className="field-error" role="alert">{fieldErrors.phone}</small>}
         </label>
+        {session.user.role === "customer" && <label>
+          WhatsApp number (optional)
+          <input name="whatsappNumber" type="tel" inputMode="tel" autoComplete="tel" placeholder="+266 56903048" maxLength={40} defaultValue={session.user.whatsappNumber || ""} aria-invalid={Boolean(fieldErrors.whatsappNumber)} aria-describedby={fieldErrors.whatsappNumber ? "profile-whatsapp-error" : "profile-whatsapp-help"} />
+          <small>Leave blank to use email or phone contact instead. We never infer WhatsApp from your email.</small>
+          {fieldErrors.whatsappNumber && <small id="profile-whatsapp-error" className="field-error" role="alert">{fieldErrors.whatsappNumber}</small>}
+        </label>}
         <button className="button">Save profile</button>
       </form>
       <form className="panel form-grid" onSubmit={change}>

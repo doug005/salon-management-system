@@ -13,6 +13,7 @@ import {
   Notification,
 } from "../src/models.js";
 import { issueToken, allowRoles } from "../src/auth.js";
+import * as validation from "../src/validation.js";
 import jwt from "jsonwebtoken";
 const secret = "a-random-test-only-secret-32-characters-long";
 const app = createApp({
@@ -45,6 +46,53 @@ test("registration rejects privilege escalation and invalid passwords before dat
     const res = await request(app).post("/api/auth/register").send(body);
     assert.equal(res.status, 400);
   }
+});
+test("shared request validation normalizes identity/contact and rejects invalid booking/payment values", () => {
+  const registered = validation.register.parse({
+    name: "  O’Connor-Smith  ",
+    email: "  CUSTOMER@EXAMPLE.TEST  ",
+    password: "a-long-test-password",
+    phone: "+266 60000001",
+    whatsappNumber: "+266 60000002",
+  });
+  assert.equal(registered.name, "O’Connor-Smith");
+  assert.equal(registered.email, "customer@example.test");
+  assert.equal(registered.phone, "+26660000001");
+  assert.equal(registered.whatsappNumber, "+26660000002");
+  for (const name of ["A", "Customer 4", "<script>", "  "]) {
+    assert.equal(validation.register.safeParse({
+      name,
+      email: "customer@example.test",
+      password: "a-long-test-password",
+    }).success, false);
+  }
+  assert.equal(validation.login.safeParse({ email: "bad-address", password: "x" }).success, false);
+  assert.equal(validation.profile.safeParse({ name: "Customer Name", phone: "123", whatsappNumber: "" }).success, false);
+
+  const ids = { service: "012345678901234567890123", professional: "123456789012345678901234" };
+  const validBooking = {
+    ...ids,
+    startsAt: "2027-01-15T10:00:00+02:00",
+    acceptPolicy: true,
+    policyVersion: "1",
+    notes: "",
+  };
+  assert.equal(validation.booking.safeParse(validBooking).success, true);
+  assert.equal(validation.booking.safeParse({ ...validBooking, service: "not-an-id" }).success, false);
+  assert.equal(validation.booking.safeParse({ ...validBooking, startsAt: "not-a-date" }).success, false);
+  assert.equal(validation.booking.safeParse({ ...validBooking, acceptPolicy: false }).success, false);
+
+  const payment = {
+    appointment: "234567890123456789012345",
+    amountLisente: 5000,
+    method: "cash",
+    reference: "RECEIPT-001",
+    kind: "booking_fee",
+  };
+  assert.equal(validation.payment.safeParse(payment).success, true);
+  for (const amountLisente of [0, -1, 1.5, 100000001])
+    assert.equal(validation.payment.safeParse({ ...payment, amountLisente }).success, false);
+  assert.equal(validation.payment.safeParse({ ...payment, method: "gateway" }).success, false);
 });
 test("protected routes reject missing, forged and expired tokens", async () => {
   for (const token of [

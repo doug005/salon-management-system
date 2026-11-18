@@ -48,12 +48,17 @@ export async function request(path, options = {}, retry = true) {
           ? "Too many attempts. Please wait before trying again."
           : "The API is temporarily unavailable. Please try again later.",
     }));
-  if (!response.ok)
-    throw new Error(
+  if (!response.ok) {
+    const error = new Error(
       data.errors?.map((e) => `${e.field}: ${e.message}`).join(" ") ||
         data.message ||
         "Request failed.",
     );
+    error.fieldErrors = Object.fromEntries(
+      (data.errors || []).map(({ field, message }) => [field, message]),
+    );
+    throw error;
+  }
   return data;
 }
 export async function logout() {

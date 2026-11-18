@@ -245,7 +245,7 @@ test("admin creates and activates only a synthetic professional through account 
   await login(page, "admin");
   await page.goto("/admin/accounts");
   const suffix = Date.now();
-  const name = "DEMO UI professional " + suffix;
+  const name = "DEMO UI professional";
   await page.getByLabel("Name", { exact: true }).fill(name);
   await page
     .getByLabel("Email", { exact: true })

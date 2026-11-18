@@ -12,23 +12,28 @@ export function GoogleButton({ onSession, link = false }) {
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
-    script.onload = () => {
+    script.onload = async () => {
       if (!active || !container.current || !window.google?.accounts?.id) return;
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: async ({ credential }) => {
-          try {
-            setError('');
-            const result = await request(link ? '/auth/google/link' : '/auth/google', {
-              method: 'POST', body: { credential },
-            });
-            onSession(result);
-          } catch (err) { setError(err.message); }
-        },
-      });
-      window.google.accounts.id.renderButton(container.current, {
-        theme: 'outline', size: 'large', text: link ? 'continue_with' : 'signin_with',
-      });
+      try {
+        const { nonce } = await request('/auth/google/nonce', { method: 'POST', body: {} });
+        if (!active || !container.current) return;
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          nonce,
+          callback: async ({ credential }) => {
+            try {
+              setError('');
+              const result = await request(link ? '/auth/google/link' : '/auth/google', {
+                method: 'POST', body: { credential },
+              });
+              onSession(result);
+            } catch (err) { setError(err.message); }
+          },
+        });
+        window.google.accounts.id.renderButton(container.current, {
+          theme: 'outline', size: 'large', text: link ? 'continue_with' : 'signin_with',
+        });
+      } catch (err) { if (active) setError(err.message); }
     };
     script.onerror = () => { if (active) setError('Google sign-in is unavailable. Try again online.'); };
     document.head.appendChild(script);

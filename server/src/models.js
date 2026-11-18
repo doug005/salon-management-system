@@ -24,7 +24,12 @@ const userSchema = new Schema(
       lowercase: true,
       trim: true,
     },
+    emailVerified: { type: Boolean, default: undefined },
+    emailVerifiedAt: Date,
+    verificationVersion: { type: Number, default: 0 },
+    passwordResetVersion: { type: Number, default: 0 },
     phone: { type: String, default: "" },
+    whatsappNumber: { type: String, default: "" },
     googleSub: { type: String, unique: true, sparse: true },
     password: { type: String, required: true, select: false },
     role: {
@@ -58,6 +63,21 @@ export const Session = model(
       userVersion: { type: Number, required: true, default: 0 },
       tokenHash: { type: String, unique: true, required: true },
       expiresAt: { type: Date, required: true, index: { expires: 0 } },
+    },
+    options,
+  ),
+);
+export const AuthChallenge = model(
+  "AuthChallenge",
+  new Schema(
+    {
+      user: ref("User", false),
+      purpose: { type: String, enum: ["email_verification", "password_reset", "google_nonce"], required: true },
+      tokenHash: { type: String, required: true, unique: true },
+      expiresAt: { type: Date, required: true, index: { expires: 0 } },
+      consumedAt: Date,
+      deliveryStatus: { type: String, enum: ["pending", "sent", "failed", "simulated"], default: "pending" },
+      lastError: String,
     },
     options,
   ),
@@ -100,6 +120,7 @@ const appointmentSchema = new Schema(
     revision: { type: Number, default: 0 },
     reference: { type: String, unique: true, required: true },
     customer: ref("User", false),
+    customerWhatsAppNumber: { type: String, default: "" },
     guestCustomer: { name: { type: String, maxlength: 100 }, phone: { type: String, maxlength: 30 } },
     professional: ref("User"),
     staff: ref("User", false),
@@ -355,6 +376,7 @@ export const GuestCustomer = model("GuestCustomer", new Schema({
   professional: ref("User"),
   name: { type: String, required: true, trim: true, maxlength: 100 },
   phone: { type: String, required: true, trim: true, maxlength: 30 },
+  whatsappNumber: { type: String, default: "" },
 }, options));
 GuestCustomer.schema.index({ professional: 1, phone: 1 }, { unique: true });
 export const ProfessionalCustomer = model(

@@ -55,6 +55,8 @@ export function authenticate(secret) {
           message: "Account role requires an explicit migration mapping.",
         });
       req.user = user;
+      if (user.emailVerified === false)
+        return res.status(403).json({ message: "Verify your email address before using protected account features." });
       req.sessionId = session._id;
       next();
     } catch (error) {
@@ -76,6 +78,8 @@ export const publicUser = (user) => ({
   name: user.name,
   email: user.email,
   phone: user.phone,
+  whatsappNumber: user.whatsappNumber || "",
+  emailVerified: user.emailVerified === true,
   role: user.role,
 });
 const cookieOptions = (config) =>
@@ -88,6 +92,8 @@ export function refreshCookie(req) {
   return value?.slice("salon_refresh=".length) || "";
 }
 export async function startSession(user, res, config) {
+  if (user.emailVerified === false)
+    throw Object.assign(new Error("Verify your email address before signing in."), { status: 403 });
   if (!isCurrentRole(user.role))
     throw Object.assign(
       new Error("Account role requires an explicit migration mapping."),
@@ -137,6 +143,11 @@ export async function rotateSession(req, res, config) {
     await session.deleteOne();
     clearCookie(res, config);
     return res.status(401).json({ message: "Session unavailable." });
+  }
+  if (user.emailVerified === false) {
+    await session.deleteOne();
+    clearCookie(res, config);
+    return res.status(403).json({ message: "Verify your email address before using protected account features." });
   }
   if (!isCurrentRole(user.role)) {
     clearCookie(res, config);

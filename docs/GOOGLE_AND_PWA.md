@@ -1,5 +1,11 @@
 # Google sign-in and offline shell (Milestone 4 partial implementation)
 
+## Email/password authentication
+
+Customer registration validates and normalizes name, email, password and optional contact details, prevents duplicate emails, then requires a one-time email-verification link before login. Verification and password-reset links are single-use, expire after 30 minutes, and are stored as token hashes. Password reset revokes existing sessions. Forgot-password/resend responses do not disclose whether an account exists.
+
+Email delivery is intentionally disabled by default (`EMAIL_MODE=safe`). Real delivery requires an approved SMTP provider configured only on the backend with `EMAIL_MODE=smtp`, `EMAIL_DELIVERY_APPROVED=yes`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`. Never put SMTP credentials in client settings or Git. Safe-mode and failed delivery do not send links; configure and verify the provider before claiming email verification or recovery messages are delivered. The local integration suite uses a synthetic mail transport and does not establish real provider delivery.
+
 ## Google login
 
 Create a Google Auth Platform **Web** OAuth client, with the real HTTPS site origin (and `http://localhost:3000` for development) in Authorized JavaScript origins. Set `GOOGLE_CLIENT_ID` in `server/.env` and `PUBLIC_GOOGLE_CLIENT_ID` in `client/.env` to the same client ID. No client secret is needed for Google Identity Services ID-token sign-in. Both values are optional; Google controls are hidden until configured. Do not commit real environment files.

@@ -204,11 +204,13 @@ export async function reserve(input, actor) {
   if (guest && input.customer) fail(400, "Choose a registered customer or phone customer, not both.");
   const customer = actor.role === "customer" ? actor._id : input.customer;
   let bookingCustomerName = guest?.name || actor.name || "Customer";
+  let bookingCustomerWhatsApp = guest?.whatsappNumber || "";
   if (!guest) {
     if (!customer) fail(400, "Select a customer or enter phone booking details.");
     const person = await User.findOne({ _id: customer, role: "customer", active: true });
     if (!person) fail(400, "Select an active customer.");
     bookingCustomerName = person.name;
+    bookingCustomerWhatsApp = person.whatsappNumber || "";
 
     // Professionals may only book registered customers already
     // associated with their own business.
@@ -234,6 +236,7 @@ export async function reserve(input, actor) {
         {
           reference: `SAL-${randomBytes(12).toString("hex").toUpperCase()}`,
           ...(customer ? { customer } : {}),
+          customerWhatsAppNumber: bookingCustomerWhatsApp,
           ...(guest ? { guestCustomer: guest } : {}),
           professional: provider._id,
           service: service._id,
@@ -264,7 +267,7 @@ export async function reserve(input, actor) {
     );
     if (guest) await GuestCustomer.updateOne(
       { professional: provider._id, phone: guest.phone },
-      { $set: { name: guest.name } },
+      { $set: { name: guest.name, whatsappNumber: guest.whatsappNumber || "" } },
       { session, upsert: true },
     );
     await Slot.insertMany(
