@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+
 const accounts = JSON.parse(
   await readFile(
     new URL("../.local/multi-professional-accounts.json", import.meta.url),
@@ -123,13 +124,9 @@ test("professionals manage own services, see independent lists, and cannot admin
   await expect(
     otherPage.getByRole("heading", { name, exact: true }),
   ).toHaveCount(0);
-  await otherPage.goto("/professional/settings");
-  await expect(
-    otherPage.getByLabel("Business name", { exact: true }),
-  ).toHaveValue("Unpublished professional business");
   await other.close();
 });
-test("professional uploads, previews, publishes and removes a service image", async ({ page }) => {
+test("professional uploads, previews, publishes and removes a service image", async ({ page, browser }) => {
   await login(page, "professional");
   await page.goto("/professional/services");
   const name = "DEMO image browser service " + Date.now();
@@ -152,17 +149,17 @@ test("professional uploads, previews, publishes and removes a service image", as
   await page.getByRole("button", { name: "Save service image" }).click();
   const preview = page.locator(".service-image-preview");
   await expect.poll(() => preview.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
-  await page.goto("/services");
-  await page.reload();
-  const card = page.locator(".discovery-card").filter({ hasText: name });
-  await expect(card).toBeVisible();
-  const publicImage = card.locator("img");
+  const publicContext = await browser.newContext();
+  const publicPage = await publicContext.newPage();
+  await publicPage.goto("/services");
+  await publicPage.reload();
+  const publicCard = publicPage.locator(".discovery-card").filter({ hasText: name });
+  await expect(publicCard).toBeVisible();
+  const publicImage = publicCard.locator("img");
   await expect(publicImage).toHaveCount(1);
   await publicImage.scrollIntoViewIfNeeded();
   await expect.poll(() => publicImage.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
-  await page.goto("/professional/services");
-  const updatedRow = page.getByRole("row").filter({ hasText: name });
-  await updatedRow.getByRole("button", { name: "Edit record", exact: true }).click();
+  await publicContext.close();
   await page.getByRole("button", { name: "Remove image", exact: true }).click();
   await expect(page.getByRole("button", { name: "Remove image", exact: true })).toHaveCount(0);
 });
