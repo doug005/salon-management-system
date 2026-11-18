@@ -3,7 +3,7 @@ services:
     name: salon-api
     runtime: node
     plan: free
-    buildCommand: npm ci --omit=dev && npm run db:indexes -w server
+    buildCommand: npm ci --omit=dev && npm run db:indexes -w server && if [ "$DEMO_SEED_AUTHORIZED" = "yes" ]; then npm run demo:seed -w server; fi
     startCommand: npm run start -w server
     healthCheckPath: /api/health
     envVars:

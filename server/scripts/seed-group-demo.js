@@ -22,6 +22,31 @@ const identities = {
 };
 
 async function loadDemoCredentials() {
+  if (process.env.DEMO_SEED_CREDENTIALS_JSON) {
+    let supplied;
+    try {
+      supplied = JSON.parse(process.env.DEMO_SEED_CREDENTIALS_JSON);
+    } catch {
+      throw new Error("DEMO_SEED_CREDENTIALS_JSON must contain valid JSON.");
+    }
+    if (
+      !supplied ||
+      typeof supplied !== "object" ||
+      Object.keys(supplied).some((role) => !["admin", "professional", "customer"].includes(role))
+    )
+      throw new Error("DEMO_SEED_CREDENTIALS_JSON has an invalid shape.");
+    const stored = Object.fromEntries(
+      ["admin", "professional", "customer"].map((role) => [
+        role,
+        { ...identities[role], password: supplied[role]?.password },
+      ]),
+    );
+    for (const role of ["admin", "professional", "customer"])
+      if (typeof stored[role].password !== "string" || stored[role].password.length < 12)
+        throw new Error("DEMO_SEED_CREDENTIALS_JSON is incomplete.");
+    return stored;
+  }
+
   const root = fileURLToPath(new URL("../../.local", import.meta.url));
   await fs.mkdir(root, { recursive: true, mode: 0o700 });
   const file = path.join(root, "group-demo-credentials.json");
