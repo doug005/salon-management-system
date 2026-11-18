@@ -327,7 +327,7 @@ export function createApp(config) {
     const names = new Map(
       profiles.map((p) => [String(p.professional), p.salonName]),
     );
-    res.json({
+    res.set("Cache-Control", "no-store").json({
       ...result,
       items: result.items.map((item) => ({
         ...item.toObject(),
