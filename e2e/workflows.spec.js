@@ -146,13 +146,37 @@ test("professional uploads, previews, publishes and removes a service image", as
     }).png().toBuffer(),
   });
   await expect(page.locator(".media-preview")).toBeVisible();
+  const uploadResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === "PUT" &&
+    response.url().includes("/api/professional/services/") &&
+    response.url().endsWith("/image"),
+  );
   await page.getByRole("button", { name: "Save service image" }).click();
+  const uploadResponse = await uploadResponsePromise;
+  expect(uploadResponse.status()).toBe(200);
+  const uploadResult = await uploadResponse.json();
+  expect(uploadResult.imageUrl).toMatch(
+    /^\/api\/public\/services\/[a-f\d]{24}\/image$/i,
+  );
   const preview = page.locator(".service-image-preview");
   await expect.poll(() => preview.evaluate((image) => image.naturalWidth)).toBeGreaterThan(0);
+  await expect.poll(() => preview.getAttribute("src")).toContain(uploadResult.imageUrl);
   const publicContext = await browser.newContext();
+  const publicServicesResponse = await publicContext.request.get(
+    "http://localhost:4000/api/public/services?limit=100",
+  );
+  expect(publicServicesResponse.status()).toBe(200);
+  const publicServices = await publicServicesResponse.json();
+  const publicService = publicServices.items.find((item) => item.name === name);
+  expect(publicService?.imageUrl).toBe(uploadResult.imageUrl);
+  const publicImageResponse = await publicContext.request.get(
+    `http://localhost:4000${uploadResult.imageUrl}`,
+  );
+  expect(publicImageResponse.status()).toBe(200);
+  expect(publicImageResponse.headers()["content-type"]).toContain("image/webp");
+  expect((await publicImageResponse.body()).byteLength).toBeGreaterThan(0);
   const publicPage = await publicContext.newPage();
   await publicPage.goto("/services");
-  await publicPage.reload();
   const publicCard = publicPage.locator(".discovery-card").filter({ hasText: name });
   await expect(publicCard).toBeVisible();
   const publicImage = publicCard.locator("img");
@@ -330,7 +354,14 @@ test("professional advertisement lifecycle and mobile public display", async ({
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  const unpublishResponsePromise = page.waitForResponse((response) =>
+    response.request().method() === "POST" &&
+    response.url().endsWith("/unpublish"),
+  );
   await card.getByRole("button", { name: "Unpublish", exact: true }).click();
+  const unpublishResponse = await unpublishResponsePromise;
+  expect(unpublishResponse.status()).toBe(200);
+  expect((await unpublishResponse.json()).status).toBe("unpublished");
   await expect(card).toContainText("Status: unpublished");
   await publicPage.reload();
   await expect(

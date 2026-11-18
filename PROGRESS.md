@@ -1,3 +1,19 @@
+# Urgent handover — service-image test resolved (2026-11-18)
+
+## Current status
+
+- The reported public service-image failure was a flaky browser-test sequence, not a backend permission or media-delivery defect. The test uploaded successfully, then immediately reloaded the public listing before checking the rendered image. It now waits for the upload response, checks the anonymous public service projection and image HTTP response, and renders from the initial public navigation without an unnecessary reload.
+- Public checks confirmed `/api/public/services` is unauthenticated, returns the service image URL for a published professional's active service, and the URL returns HTTP 200 with non-empty `image/webp` bytes without credentials.
+- The advertisement workflow in the first full rerun also failed once; a targeted retry encountered the already-exhausted process-local login limiter. Restarted only the project-owned demo API (database preserved), added an explicit unpublish response assertion, verified that workflow, then completed the final full browser run.
+- Final actual results: `MONGOMS_RUNTIME_DOWNLOAD=false TMPDIR="$PWD/.local/tmp" npm run test:e2e` **13/13 passed**; `npm run lint` passed; `npm run build` passed. No runtime downloads, database reset, application rebuild/rewrite, migration or external service was used.
+- Git branch is `main`, tracking `origin/main`. The pre-existing `.gitignore` edit (adding `.vercel`) was present before this task and is intentionally not included in the test-fix commit. No remote or repository setting was changed; no push or deployment has occurred.
+
+## Exact next step
+
+Review and commit only `e2e/workflows.spec.js` and this progress update. Keep the existing `.gitignore` change separate. Ask for authorization before pushing to the existing `origin` remote. Continue deployment prerequisites in the requested order; no cloud credentials or provider setup has been verified.
+
+---
+
 # Assignment completion — local implementation and verification (2026-11-17)
 
 ## Current status
