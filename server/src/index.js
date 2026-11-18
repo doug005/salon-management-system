@@ -57,10 +57,19 @@ try {
   };
   process.on("SIGTERM", stop);
   process.on("SIGINT", stop);
-} catch {
+} catch (error) {
   await mongoose.disconnect();
+  const errorType =
+    typeof error?.name === "string" && /^[A-Za-z][A-Za-z0-9]{0,40}$/.test(error.name)
+      ? error.name
+      : "UnknownError";
+  const errorCode =
+    (typeof error?.code === "string" && /^[A-Za-z0-9_-]{1,32}$/.test(error.code)) ||
+    (Number.isInteger(error?.code) && error.code >= 0)
+      ? `/${error.code}`
+      : "";
   console.error(
-    "Startup failed. Check environment configuration and MongoDB access. Credentials are not logged.",
+    `Startup failed (${errorType}${errorCode}). Check environment configuration and MongoDB access. Credentials are not logged.`,
   );
   process.exit(1);
 }

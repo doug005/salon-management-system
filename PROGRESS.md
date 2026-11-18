@@ -1,3 +1,38 @@
+# Deployment handover — current-session verification (2026-11-18)
+
+- **Latest Render deploy:** The owner triggered a deployment after updating environment settings. Render reports **Deploy failed**; build/install completed successfully, but Node startup failed with the app's intentionally generic “Startup failed. Check environment configuration and MongoDB access. Credentials are not logged.” Public `/api/health` timed out (HTTP 000). Therefore there is no verified backend yet. Do not reset the Atlas user again without confirming the stored URI and diagnosing the next sanitized startup failure.
+- **Render:** Created the requested new Render Blueprint/service from the verified `origin/main` repository at `69d367c`. Service `salon-api` is on the **Free** plan at `https://salon-api-3iqi.onrender.com`; its first deployment currently reports **Failed**, and an external `/api/health` request timed out. This is not a working backend yet. Blueprint name: `salon-management-system-preview`. Existing `creatorspace-api` was not touched.
+- **Atlas:** Signed-in project is the existing `SalonFlow` project / `SalonFlowCluster`. Verified `salon_group_app` exists with its custom role documented as limited to `salon_group_demo`; no password was read, changed or exposed. Added the two documented Render service outbound ranges (`74.220.48.0/24`, `74.220.56.0/24`) as permanent Atlas IP allowlist entries; both are now **Active**. No broad `0.0.0.0/0` rule was added.
+- **Render config:** Nonsecret `CLIENT_ORIGIN`, existing R2 bucket name, R2 S3 endpoint, and `AD_S3_REGION=auto`/`AD_STORAGE=s3` settings are configured from the Blueprint. The required Atlas URI and R2 access key/secret are not present. No Atlas connection, app health, indexes, seed, authentication, or media test is claimed.
+- **Cloudflare:** Signed into the existing Cloudflare account and confirmed the existing `salon-group-media` bucket appears. No R2 credential was created, viewed, or reused. It must remain private.
+- **Vercel:** The owner is now signed into the existing `doug005` Vercel account; the project has not yet been changed. The public homepage remains HTTP 200, but `/api/health` still returns HTTP 503 because `BACKEND_ORIGIN` has not been configured.
+- **Credential incident:** While checking whether the owner had hidden the Render secret, the browser snapshot unexpectedly included the full MongoDB URI and password. Treat that password as compromised. Rotated only `salon_group_app` again at the owner's request: generated a new password, invoked Atlas Copy, and submitted Update User; the dialog closed. DB authentication is not yet verified. The Render URI remains stale. Clipboard transfer between the authenticated browser pages failed; no password was returned to or read by the assistant. Do not inspect the Render variable through browser automation because snapshots can expose secrets despite the masked UI.
+- A later authentication-page accessibility snapshot showed nonempty text in a password input. No value was copied into project files or handover notes. Stop inspecting provider sign-in pages; if that was a real credential, treat it as exposed and rotate it before continuing.
+- No Atlas credentials or endpoint were available locally; no Atlas connectivity, indexes, seed data, working Render backend, R2 token, media persistence, or live authentication has been verified. Deployment is blocked pending secure provider-side secret entry and Vercel sign-in.
+
+## Immediate next action
+At the owner's request, rotated only `salon_group_app` again, generated and copied the new password, and submitted Atlas Update User. Render's Environment editor is open in edit mode with the connection-string template. Replace only `__PASSWORD__` with the newly copied password; retain the colon before it and the `@salonflowcluster` suffix. Save and deploy. Do not inspect this variable through browser automation or request screenshots. Verify only the public HTTP health response.
+---
+
+# Deployment handover — hosted prerequisites in progress (2026-11-18)
+
+- **Credential incident / audit follow-up:** During browser-based configuration, credentials for `salon-render-app-live` and `salon-render-deploy` were inadvertently exposed in a tool result. The Cloudflare audit log now shows three token-create events and three token-revoke events during this setup window. `salon-render-app-live` was created at 09:25:56 and a token-revoke event followed at 09:26:46; the audit event does not include a token name, so exact event-to-token attribution is unavailable. The user manually deleted `salon-render-deploy`. A fresh check confirms both Account API Tokens and User API Tokens lists are empty. No token secret was retrieved during this follow-up. Treat both exposed credentials as revoked/inactive; keep them out of Render, and issue replacements only if needed.
+- `69d367c` was pushed to `origin/main` after verifying the existing repository target and checking that the commit contains only `render.yaml` and no credentials. The separate `.gitignore` change remains excluded.
+- Atlas project `SalonFlow` has an existing free Cape Town cluster and the `salon_group_app` database user with a custom role limited to `salon_group_demo`. Atlas connection URI/password are not available in the repository or to the agent; database network access is not yet configured for Render.
+- Cloudflare R2 activation completed in the account at $0 base/month; overage rates apply above free allowances. Created private Standard bucket `salon-group-media` (no public access). R2 access key/secret are not yet created; do not make the bucket public.
+- Existing Vercel project `doug005/salon-management-system` is connected to this repository. Preview alias `https://salon-management-system-sand.vercel.app` serves the UI, but live API requests currently report unavailable/404 because no backend is configured.
+- Render Blueprint draft is for a new Free `salon-api` service only; the existing `creatorspace-api` remains untouched. Non-secret values can be re-entered as needed; the draft is not deployed. Atlas URI/password, safe scoped R2 credentials, Render outbound IP allowlisting, additive production indexes and initial admin provisioning remain outstanding.
+- No production database data has been seeded or migrated; no hosted backend health/database connectivity is claimed. No tests were rerun as requested.
+
+## Next external steps
+
+1. Create a Cloudflare R2 API token with **Object Read & Write**, restricted to `salon-group-media`; enter the Access Key ID and Secret Access Key directly into the Render secret inputs, never chat.
+2. Obtain the Atlas URI for `salon_group_app` and `salon_group_demo`; enter it directly in Render. Add only Render's documented outbound CIDR ranges to Atlas after creating the new service; never use `0.0.0.0/0`.
+3. Configure the one-time initial admin setup securely before exposing registration/workflows; remove the setup token immediately after provisioning.
+4. Deploy the new Free backend, confirm `/api/health` and production Mongo replica-set/index readiness, then set Vercel `BACKEND_ORIGIN` to that exact HTTPS service URL and verify end-to-end flows.
+
+---
+
 # Urgent handover — service-image test resolved (2026-11-18)
 
 ## Current status
