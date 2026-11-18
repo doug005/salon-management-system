@@ -3,7 +3,7 @@ services:
     name: salon-api
     runtime: node
     plan: free
-    buildCommand: npm ci --omit=dev
+    buildCommand: npm ci --omit=dev && npm run db:indexes -w server
     startCommand: npm run start -w server
     healthCheckPath: /api/health
     envVars:
