@@ -5,7 +5,6 @@ import { useState } from "react";
 import { request } from "./api.js";
 import { useAuth, useData } from "./state.jsx";
 import { Collection, Feedback, Loading } from "./operations.jsx";
-import { normalizeInternationalPhone } from "./phone.js";
 export function PlatformOverview() {
   const state = useData("/admin/overview");
   const activity = useData("/audit?limit=5");
@@ -71,25 +70,29 @@ export function PlatformAccounts() {
   async function create(e) {
     e.preventDefault();
     const form = e.currentTarget;
-    const whatsappNumber = normalizeInternationalPhone(
-      new FormData(form).get("whatsappNumber"),
-    );
-    if (!whatsappNumber) {
-      setError("Enter a valid international WhatsApp number, including country code.");
-      return;
-    }
+    const email = String(new FormData(form).get("email") || "").trim().toLowerCase();
     setBusy(true);
     try {
-      await request("/admin/professionals", {
+      const result = await request("/admin/professional-invitations", {
         method: "POST",
-        body: { ...Object.fromEntries(new FormData(form)), whatsappNumber },
+        body: { email },
       });
       setError("");
-      setMessage(
-        "Professional account created. Its business profile remains unpublished until the professional configures it.",
-      );
+      setMessage(result.message);
       form.reset();
       setVersion((v) => v + 1);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function resendInvitation(item) {
+    setBusy(true);
+    try {
+      const result = await request(`/admin/professional-invitations/${item._id}/resend`, { method: "POST", body: {} });
+      setError("");
+      setMessage(result.message);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -112,44 +115,14 @@ export function PlatformAccounts() {
     <>
       <Feedback error={error} message={message} />
       <form id="add-professional" className="panel form-grid" onSubmit={create}>
-        <h2>Create professional account</h2>
+        <h2>Invite a professional securely</h2>
         <label>
-          Name
-          <input name="name" required minLength={2} maxLength={100} />
+          Professional email address
+          <input name="email" type="email" autoComplete="email" maxLength={254} required />
         </label>
-        <label>
-          Email
-          <input name="email" type="email" autoComplete="off" required />
-        </label>
-        <label>
-          Initial password
-          <input
-            name="password"
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={12}
-          />
-        </label>
-        <label>
-          WhatsApp number (international)
-          <input
-            name="whatsappNumber"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            placeholder="+266 56903048"
-            required
-            maxLength={40}
-            aria-describedby="professional-whatsapp-help"
-          />
-          <small id="professional-whatsapp-help">
-            Include the country code. Example: +266 56903048.
-          </small>
-        </label>
-        <button className="button" disabled={busy}>
-          Create professional
-        </button>
+        <p>A private, one-time email link verifies address ownership and lets the professional choose their own password. Business name and WhatsApp are entered by the professional; the profile stays unpublished until configured.</p>
+        <p>Email delivery is currently safe-mode unless an approved SMTP provider is configured. If no email was sent, ask an admin to configure SMTP and resend; never share temporary passwords or setup links manually.</p>
+        <button className="button" disabled={busy}>{busy ? "Preparing invitation…" : "Send setup invitation"}</button>
       </form>
       <Collection
         key={version}
@@ -163,20 +136,16 @@ export function PlatformAccounts() {
             label: "Status",
             render: (item) => (
               <span className="badge">
-                {item.active ? "Active" : "Inactive"}
+                {item.setupPending ? `Invitation pending · ${item.active ? "Active" : "Inactive"}` : item.active ? "Active" : "Inactive"}
               </span>
             ),
           },
           {
             label: "Action",
-            render: (item) =>
-              item._id !== session.user.id ? (
-                <button onClick={() => toggle(item)}>
-                  {item.active ? "Deactivate" : "Activate"} account
-                </button>
-              ) : (
-                "Current account"
-              ),
+            render: (item) => <div className="account-actions">
+              {item._id !== session.user.id ? <button onClick={() => toggle(item)}>{item.active ? "Deactivate" : "Activate"} account</button> : "Current account"}
+              {item.role === "professional" && item.setupPending && <button disabled={busy} onClick={() => resendInvitation(item)}>Resend secure setup invitation</button>}
+            </div>,
           },
         ]}
       >

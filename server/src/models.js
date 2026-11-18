@@ -26,6 +26,7 @@ const userSchema = new Schema(
     },
     emailVerified: { type: Boolean, default: undefined },
     emailVerifiedAt: Date,
+    setupPending: { type: Boolean, default: false },
     verificationVersion: { type: Number, default: 0 },
     passwordResetVersion: { type: Number, default: 0 },
     phone: { type: String, default: "" },
@@ -72,7 +73,7 @@ export const AuthChallenge = model(
   new Schema(
     {
       user: ref("User", false),
-      purpose: { type: String, enum: ["email_verification", "password_reset", "google_nonce"], required: true },
+      purpose: { type: String, enum: ["email_verification", "password_reset", "professional_setup", "google_nonce"], required: true },
       tokenHash: { type: String, required: true, unique: true },
       expiresAt: { type: Date, required: true, index: { expires: 0 } },
       consumedAt: Date,
@@ -364,8 +365,8 @@ professionalProfileSchema.add({
   photo: ref("BusinessMedia", false),
   whatsappNumber: {
     type: String,
-    required: true,
-    match: /^\+[1-9]\d{7,14}$/,
+    default: "",
+    validate: (value) => !value || /^\+[1-9]\d{7,14}$/.test(value),
   },
 });
 export const ProfessionalProfile = model(

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-export function ConnectionBanner() {
-  const [online, setOnline] = useState(navigator.onLine);
+import { useLanguage } from './i18n.jsx';
+
+export function useOnline() {
+  const [online, setOnline] = useState(() => navigator.onLine);
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     window.addEventListener('online', update);
@@ -10,8 +12,15 @@ export function ConnectionBanner() {
       window.removeEventListener('offline', update);
     };
   }, []);
-  if (online) return null;
-  return <div role="status" className="offline-banner">
-    Offline: saved app pages may open, but bookings, payments, sign-in and live business records need internet. Do not assume a booking is confirmed.
+  return online;
+}
+
+export function ConnectionBanner() {
+  const online = useOnline();
+  const { t } = useLanguage();
+  return <div role="status" aria-live="polite" className={online ? 'connection-banner is-online' : 'connection-banner is-offline'}>
+    {online
+      ? t('Online · live actions require a working connection.')
+      : t('Offline · cached app shell and public info only. Booking, sign-in, and payment verification need internet; no action is queued.')}
   </div>;
 }

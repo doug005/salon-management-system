@@ -43,7 +43,8 @@ test("public professional directory and customer-only registration", async ({
     page.getByRole("heading", { name: "DEMO Professional One", exact: true }),
   ).toBeVisible();
   await page.goto("/register");
-  await expect(page.getByRole("combobox")).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Language / Puo" })).toBeVisible();
+  await expect(page.getByRole("combobox")).toHaveCount(1);
   await page.getByLabel("Full name").fill("Customer 9");
   await page
     .getByLabel("Email address")
@@ -71,6 +72,45 @@ test("public professional directory and customer-only registration", async ({
   await page.goto("/admin");
   await expect(page).toHaveURL(/login$/);
 });
+test("English and Sesotho switching persists and does not clear an in-progress form", async ({ page }) => {
+  await page.goto("/register");
+  await page.getByLabel("Full name").fill("DEMO Language Customer");
+  await page.getByLabel("Email address").fill("language-customer@example.test");
+  await page.getByLabel("Password", { exact: true }).fill("Synthetic-language-password-123");
+  await page.getByLabel("Confirm password", { exact: true }).fill("Synthetic-language-password-123");
+  const language = page.getByRole("combobox", { name: "Language / Puo" });
+  await language.selectOption("st");
+  await expect(page.getByRole("link", { name: "Lehae", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Litšebeletso", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Mabitso a felletseng")).toHaveValue("DEMO Language Customer");
+  await expect(page.getByLabel("Aterese ea lengolo-tsoibila")).toHaveValue("language-customer@example.test");
+  await expect(page.getByLabel("Phasewete", { exact: true })).toHaveValue("Synthetic-language-password-123");
+  await page.reload();
+  await expect(page.getByRole("combobox", { name: "Language / Puo" })).toHaveValue("st");
+  await expect(page.getByRole("heading", { level: 2, name: "Theha ak'haonte ea hau." })).toBeVisible();
+});
+
+test("PWA caches public service data and presents an offline fallback without queuing private actions", async ({ page }) => {
+  await page.goto("/services");
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker?.controller))).toBe(true);
+  const publicServices = await page.evaluate(async () => {
+    const response = await fetch("/api/public/services?limit=100");
+    return response.json();
+  });
+  expect(Array.isArray(publicServices.items)).toBe(true);
+  await page.context().setOffline(true);
+  const cached = await page.evaluate(async () => {
+    const response = await fetch("/api/public/services?limit=100");
+    return { status: response.status, data: await response.json() };
+  });
+  expect(cached.status).toBe(200);
+  expect(cached.data.items.length).toBe(publicServices.items.length);
+  await page.goto("/book");
+  await expect(page.getByRole("heading", { name: "You’re offline" })).toBeVisible();
+  await expect(page.getByText(/not saved or queued offline/i)).toBeVisible();
+  await page.context().setOffline(false);
+});
 test("admin account management has no financial workspace or verification controls", async ({
   page,
 }) => {
@@ -87,7 +127,7 @@ test("admin account management has no financial workspace or verification contro
   ).toBeVisible();
   await page.goto("/admin/accounts");
   await expect(
-    page.getByRole("heading", { name: "Create professional account" }),
+    page.getByRole("heading", { name: "Invite a professional securely" }),
   ).toBeVisible();
   await page.goto("/admin/settings");
   await expect(page.getByLabel("Platform name", { exact: true })).toBeVisible();
@@ -97,9 +137,8 @@ test("admin account management has no financial workspace or verification contro
   await page.goto("/professional");
   await expect(page).toHaveURL(/admin$/);
 });
-test("professionals manage own services, see independent lists, and cannot administer accounts", async ({
+test("professionals manage own services and cannot administer accounts", async ({
   page,
-  browser,
 }) => {
   await login(page, "professional");
   await page.goto("/professional/services");
@@ -112,26 +151,6 @@ test("professionals manage own services, see independent lists, and cannot admin
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
   await page.goto("/admin/accounts");
   await expect(page).toHaveURL(/professional$/);
-  const other = await browser.newContext();
-  const otherPage = await other.newPage();
-  await login(otherPage, "admin");
-  await otherPage.goto("/admin/accounts");
-  const isolatedEmail = `migration-isolated-${Date.now()}@example.test`;
-  const isolatedPassword = "Synthetic-isolated-professional-123";
-  await otherPage.getByLabel("Name", { exact: true }).fill("DEMO Isolated Browser Professional");
-  await otherPage.getByLabel("Email", { exact: true }).fill(isolatedEmail);
-  await otherPage.getByLabel("Initial password", { exact: true }).fill(isolatedPassword);
-  await otherPage.getByLabel("WhatsApp number (international)").fill("+266 56903048");
-  await otherPage.getByRole("button", { name: "Create professional", exact: true }).click();
-  await expect(otherPage.locator('p[role="status"]').filter({ hasText: "Professional account created" })).toBeVisible();
-  await otherPage.getByRole("button", { name: "Log out", exact: true }).last().click();
-  await otherPage.goto("/login");
-  await otherPage.getByLabel("Email address").fill(isolatedEmail);
-  await otherPage.getByLabel("Password", { exact: true }).fill(isolatedPassword);
-  await otherPage.getByRole("button", { name: "Log in", exact: true }).click();
-  await expect(otherPage.getByRole("alert")).toContainText("Verify your email address");
-  await expect(otherPage).toHaveURL(/login$/);
-  await other.close();
 });
 test("professional uploads, previews, publishes and removes a service image", async ({ page, browser }) => {
   await login(page, "professional");
@@ -206,7 +225,7 @@ test("customer confirms a booking, continues on WhatsApp, and only the owner ver
   await page.goto("/account/profile");
   await page.getByLabel("WhatsApp number (optional)").fill("+266 60000001");
   await page.getByRole("button", { name: "Save profile", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("Profile saved");
+  await expect(page.locator('p[role="status"]')).toContainText("Profile saved");
   await page.goto("/account");
   await page
     .getByRole("link", { name: "Book a service", exact: true })

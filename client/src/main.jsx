@@ -62,6 +62,9 @@ import { roleHome } from "./roles.js";
 import { ProfessionalAppointments } from "./appointment-table.jsx";
 import { normalizeInternationalPhone } from "./phone.js";
 import { VerifyEmailPage, ForgotPasswordPage, ResetPasswordPage } from "./auth-forms.jsx";
+import { ProfessionalSetupPage } from "./professional-setup.jsx";
+import { findServiceInspiration, ServicePhoto } from "./service-photos.jsx";
+import { LanguageProvider, LanguageSwitcher, useLanguage } from "./i18n.jsx";
 import {
   PlatformOverview,
   PlatformAccounts,
@@ -175,10 +178,12 @@ function HomeNavLink({ section, children, className }) {
 }
 function Layout() {
   const business = useBusiness();
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const { session, setSession } = useContext(Auth);
   return (
     <div className="public-site">
+      <ConnectionBanner />
       <HomeSectionScroll />
       <PageScrollManager />
       <header>
@@ -197,16 +202,17 @@ function Layout() {
             aria-label="Main navigation"
             onClick={() => setOpen(false)}
           >
-            <HomeNavLink section="home">Home</HomeNavLink>
-            <HomeNavLink section="services-preview">Services</HomeNavLink>
+            <HomeNavLink section="home">{t("Home")}</HomeNavLink>
+            <HomeNavLink section="services-preview">{t("Services")}</HomeNavLink>
             {session ? (
               <>
-                <Link className="studio-nav-cta" to={roleHome(session.user.role)}>My account <ArrowUpRight size={15} /></Link>
-                <button className="studio-signout" onClick={() => setSession(null)}>Sign out</button>
+                <Link className="studio-nav-cta" to={roleHome(session.user.role)}>{t("My account")} <ArrowUpRight size={15} /></Link>
+                <button className="studio-signout" onClick={() => setSession(null)}>{t("Sign out")}</button>
               </>
             ) : (
-              <HomeNavLink className="studio-nav-cta" section="login">Log in <ArrowUpRight size={15} /></HomeNavLink>
+              <HomeNavLink className="studio-nav-cta" section="login">{t("Log in")} <ArrowUpRight size={15} /></HomeNavLink>
             )}
+            <LanguageSwitcher />
           </nav>
         </div>
       </header>
@@ -281,7 +287,7 @@ function ServiceCards({ carousel = false }) {
           onMouseEnter={() => setInteracting(true)} onMouseLeave={() => setInteracting(false)}
           onFocusCapture={() => setInteracting(true)} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setInteracting(false); }}>
           <Link className="salon-featured-photo" to={`/services/${active._id}`} state={{ from: "featured", featuredIndex: activeIndex, returnTo: "/#services-preview", returnLabel: "← Back to featured services" }} aria-label={`View ${active.name}`}>
-            {active.imageUrl ? <img src={mediaUrl(active.imageUrl)} alt={active.name} /> : <span className="salon-featured-placeholder"><Scissors size={70} strokeWidth={1.1} /></span>}
+            {active.imageUrl || findServiceInspiration(active) ? <ServicePhoto service={active} /> : <span className="salon-featured-placeholder"><Scissors size={70} strokeWidth={1.1} /></span>}
             <span className="salon-featured-photo-label">FEATURED SERVICE</span>
           </Link>
           <div className="salon-featured-copy">
@@ -303,7 +309,7 @@ function ServiceCards({ carousel = false }) {
         {items.map((item, i) => (
           <Link className="discovery-card" to={`/services/${item._id}`} state={{ from: "all-services", returnTo: "/services", returnLabel: "← Back to all services" }} key={item._id} aria-label={`View ${item.name} details`}>
             <div className="discovery-media">
-              {item.imageUrl ? <img src={mediaUrl(item.imageUrl)} alt={item.name} loading="lazy" /> : <span className="discovery-placeholder"><Scissors size={48} strokeWidth={1.2}/></span>}
+              {item.imageUrl || findServiceInspiration(item) ? <ServicePhoto service={item} /> : <span className="discovery-placeholder"><Scissors size={48} strokeWidth={1.2}/></span>}
               <span className="discovery-number">{String(i + 1).padStart(2, "0")}</span>
             </div>
             <div className="discovery-body">
@@ -333,7 +339,7 @@ function ServiceDetail() {
     {state.error && <p className="error" role="alert">{state.error}</p>}
     {!state.loading && !state.error && !item && <p>Service not found or no longer available.</p>}
     {item && <div className="discovery-detail">
-      <div className="detail-image">{item.imageUrl ? <img src={mediaUrl(item.imageUrl)} alt={item.name}/> : <span className="discovery-placeholder"><Scissors size={76} strokeWidth={1}/></span>}</div>
+      <div className="detail-image">{item.imageUrl || findServiceInspiration(item) ? <ServicePhoto service={item} /> : <span className="discovery-placeholder"><Scissors size={76} strokeWidth={1}/></span>}</div>
       <div className="detail-copy">
         <p className="discovery-kicker">SALON SERVICE</p>
         <h1>{item.name}</h1>
@@ -358,25 +364,26 @@ function BookingPage() {
 }
 function Home() {
   const business = useBusiness();
+  const { t } = useLanguage();
   return (
     <>
       <section className="studio-home-hero" id="home">
         <div className="studio-home-hero-inner container">
-          <p className="eyebrow">A SPACE FOR YOUR KIND OF BEAUTY</p>
-          <h1>Make room for<br /><em>what makes you feel good.</em></h1>
-          <p>Discover independent beauty professionals, explore their services and book a moment for yourself.</p>
-          <Link className="studio-hero-cta" to="/book">Book appointment <ArrowUpRight size={18}/></Link>
+          <p className="eyebrow">{t("A SPACE FOR YOUR KIND OF BEAUTY")}</p>
+          <h1>{t("Make room for")}<br /><em>{t("what makes you feel good.")}</em></h1>
+          <p>{t("Discover independent beauty professionals, explore their services and book a moment for yourself.")}</p>
+          <Link className="studio-hero-cta" to="/book">{t("Book appointment")} <ArrowUpRight size={18}/></Link>
         </div>
       </section>
       <section className="container section" id="featured">
-        <h2>Professional advertisements</h2>
+        <h2>{t("Professional advertisements")}</h2>
         <PublicAdvertisements />
       </section>
 <section className="section container" id="services-preview">
         <div className="section-heading">
           <div>
             <p className="eyebrow">THE SERVICE EDIT</p>
-            <h2>Find your feel-good.</h2>
+            <h2>{t("Find your feel-good.")}</h2>
           </div>
         </div>
         {business?.demo && (
@@ -386,7 +393,7 @@ function Home() {
           </p>
         )}
         <ServiceCards carousel />
-        <div className="service-view-all"><Link className="button" to="/services">View all services <ArrowUpRight size={17}/></Link></div>
+        <div className="service-view-all"><Link className="button" to="/services">{t("View all services")} <ArrowUpRight size={17}/></Link></div>
       </section>
       <section className="container section" id="professionals">
         <div className="section-heading"><div><p className="eyebrow">THE PEOPLE BEHIND THE CARE</p><h2>Meet the professionals.</h2></div></div>
@@ -407,8 +414,9 @@ function PageTitle({ label, title, children }) {
 }
 function Services() {
   const business = useBusiness();
+  const { t } = useLanguage();
   return <section className="container section">
-    <PageTitle label="THE SERVICE EDIT" title="All services">Browse every available service and select one to see details and book.</PageTitle>
+    <PageTitle label={t("THE SERVICE EDIT")} title={t("All services")}>{t("Browse every available service and select one to see details and book.")}</PageTitle>
     {business?.demo && <p className="demo-notice">Demonstration menu — these are synthetic services and prices.</p>}
     <ServiceCards />
   </section>;
@@ -440,7 +448,8 @@ function ContactCards() {
   );
 }
 function Contact() {
-  return <section className="container section"><PageTitle label="OUR PROFESSIONALS" title="Find your professional." /><ContactCards /></section>;
+  const { t } = useLanguage();
+  return <section className="container section"><PageTitle label={t("OUR PROFESSIONALS")} title={t("Find your professional.")} /><ContactCards /></section>;
 }
 function validateAuthField(field, value, register) {
   const text = String(value || "");
@@ -467,6 +476,7 @@ function validateAuthField(field, value, register) {
 }
 function AuthPage({ register = false, embedded = false }) {
   const { session, setSession, loading } = useContext(Auth);
+  const { t } = useLanguage();
   const [error, setError] = useState("");
   const [verificationPending, setVerificationPending] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({});
@@ -489,7 +499,7 @@ function AuthPage({ register = false, embedded = false }) {
     Object.keys(nextErrors).forEach((field) => { if (!nextErrors[field]) delete nextErrors[field]; });
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
-      setError("Please correct the highlighted fields.");
+      setError(t("Please correct the highlighted fields."));
       form.querySelector('[aria-invalid="true"]')?.focus();
       return;
     }
@@ -523,7 +533,7 @@ function AuthPage({ register = false, embedded = false }) {
       );
       if (Object.keys(serverFields).length) {
         setFieldErrors((current) => ({ ...current, ...serverFields }));
-        setError("Please correct the highlighted fields.");
+        setError(t("Please correct the highlighted fields."));
         form.querySelector('[aria-invalid="true"]')?.focus();
         return;
       }
@@ -541,17 +551,17 @@ function AuthPage({ register = false, embedded = false }) {
   return (
     <section id={embedded ? "login" : undefined} className="container section studio-auth-wrap">
       <div className="studio-auth-intro">
-        <p className="studio-kicker">YOUR SALON SPACE</p>
-        <h1>{register ? "Your next appointment, all in one place." : "Your beauty, all in one place."}</h1>
-        <p>{register ? "Discover independent professionals, explore their services and book with confidence." : "Sign in to discover services, manage your bookings and stay in touch with your professional."}</p>
-        <small>Private and secure account access</small>
+        <p className="studio-kicker">{t("YOUR SALON SPACE")}</p>
+        <h1>{t(register ? "Your next appointment, all in one place." : "Your beauty, all in one place.")}</h1>
+        <p>{t(register ? "Discover independent professionals, explore their services and book with confidence." : "Sign in to discover services, manage your bookings and stay in touch with your professional.")}</p>
+        <small>{t("Private and secure account access")}</small>
       </div>
       <form ref={formRef} noValidate className="panel auth-form studio-auth-form" onSubmit={submit}>
         <p className="studio-kicker">{register ? "CUSTOMER REGISTRATION" : "ACCOUNT SIGN IN"}</p>
-        <h2>{register ? "Create your account." : "Welcome back."}</h2>
+        <h2>{t(register ? "Create your account." : "Welcome back.")}</h2>
         {register && (
           <label>
-            Full name
+            {t("Full name")}
             <input
               name="name"
               autoComplete="name"
@@ -563,11 +573,11 @@ function AuthPage({ register = false, embedded = false }) {
               onBlur={(event) => setFieldErrors((current) => ({ ...current, name: validateAuthField("name", event.target.value, register) }))}
               onChange={() => setFieldErrors((current) => ({ ...current, name: "" }))}
             />
-            {fieldErrors.name && <small id="auth-name-error" className="field-error" role="alert">{fieldErrors.name}</small>}
+            {fieldErrors.name && <small id="auth-name-error" className="field-error" role="alert">{t(fieldErrors.name)}</small>}
           </label>
         )}
         <label>
-          Email address
+          {t("Email address")}
           <input
             type="email"
             name="email"
@@ -579,10 +589,10 @@ function AuthPage({ register = false, embedded = false }) {
             onBlur={(event) => setFieldErrors((current) => ({ ...current, email: validateAuthField("email", event.target.value, register) }))}
             onChange={() => setFieldErrors((current) => ({ ...current, email: "" }))}
           />
-          {fieldErrors.email && <small id="auth-email-error" className="field-error" role="alert">{fieldErrors.email}</small>}
+          {fieldErrors.email && <small id="auth-email-error" className="field-error" role="alert">{t(fieldErrors.email)}</small>}
         </label>
         <label>
-          Password
+          {t("Password")}
           <input
             type="password"
             name="password"
@@ -595,34 +605,34 @@ function AuthPage({ register = false, embedded = false }) {
             onBlur={(event) => setFieldErrors((current) => ({ ...current, password: validateAuthField("password", event.target.value, register) }))}
             onChange={() => setFieldErrors((current) => ({ ...current, password: "" }))}
           />
-          {fieldErrors.password && <small id="auth-password-error" className="field-error" role="alert">{fieldErrors.password}</small>}
+          {fieldErrors.password && <small id="auth-password-error" className="field-error" role="alert">{t(fieldErrors.password)}</small>}
         </label>
         {register && <>
-          <label>Confirm password<input type="password" name="confirmPassword" autoComplete="new-password" required aria-invalid={Boolean(fieldErrors.confirmPassword)} aria-describedby={fieldErrors.confirmPassword ? "auth-confirm-error" : undefined} onChange={() => setFieldErrors((current) => ({ ...current, confirmPassword: "" }))} /></label>
-          {fieldErrors.confirmPassword && <small id="auth-confirm-error" className="field-error" role="alert">{fieldErrors.confirmPassword}</small>}
-          <label>WhatsApp number (optional)<input name="whatsappNumber" type="tel" inputMode="tel" autoComplete="tel" placeholder="+266 56903048" maxLength={40} aria-invalid={Boolean(fieldErrors.whatsappNumber)} aria-describedby={fieldErrors.whatsappNumber ? "auth-whatsapp-error" : "auth-whatsapp-help"} onBlur={(event) => setFieldErrors((current) => ({ ...current, whatsappNumber: validateAuthField("whatsappNumber", event.target.value, register) }))} onChange={() => setFieldErrors((current) => ({ ...current, whatsappNumber: "" }))} /><small id="auth-whatsapp-help">Optional. Used only if you choose to share a WhatsApp contact.</small></label>
-          {fieldErrors.whatsappNumber && <small id="auth-whatsapp-error" className="field-error" role="alert">{fieldErrors.whatsappNumber}</small>}
+          <label>{t("Confirm password")}<input type="password" name="confirmPassword" autoComplete="new-password" required aria-invalid={Boolean(fieldErrors.confirmPassword)} aria-describedby={fieldErrors.confirmPassword ? "auth-confirm-error" : undefined} onChange={() => setFieldErrors((current) => ({ ...current, confirmPassword: "" }))} /></label>
+          {fieldErrors.confirmPassword && <small id="auth-confirm-error" className="field-error" role="alert">{t(fieldErrors.confirmPassword)}</small>}
+          <label>{t("WhatsApp number (optional)")}<input name="whatsappNumber" type="tel" inputMode="tel" autoComplete="tel" placeholder="+266 56903048" maxLength={40} aria-invalid={Boolean(fieldErrors.whatsappNumber)} aria-describedby={fieldErrors.whatsappNumber ? "auth-whatsapp-error" : "auth-whatsapp-help"} onBlur={(event) => setFieldErrors((current) => ({ ...current, whatsappNumber: validateAuthField("whatsappNumber", event.target.value, register) }))} onChange={() => setFieldErrors((current) => ({ ...current, whatsappNumber: "" }))} /><small id="auth-whatsapp-help">{t("Optional. Used only if you choose to share a WhatsApp contact.")}</small></label>
+          {fieldErrors.whatsappNumber && <small id="auth-whatsapp-error" className="field-error" role="alert">{t(fieldErrors.whatsappNumber)}</small>}
         </>}
         {register && (
           <small>Use at least 12 characters, up to 72 UTF-8 bytes.</small>
         )}
         {error && (
           <p className="error" role="alert">
-            {error}
+            {t(error)}
           </p>
         )}
         {verificationPending && <Link to="/verify-email">Request another verification link</Link>}
         <button className="button" disabled={busy}>
-          {busy ? "Please wait…" : register ? "Create account" : "Log in"}{" "}
+          {t(busy ? "Please wait…" : register ? "Create account" : "Log in")}{" "}
           <ArrowRight size={17} />
         </button>
         <p>
-          {register ? "Already have an account?" : "New here?"}{" "}
+          {t(register ? "Already have an account?" : "New here?")}{" "}
           <Link className="underlink" to={register ? "/login" : "/register"}>
-            {register ? "Log in" : "Create an account"}
+            {t(register ? "Log in" : "Create an account")}
           </Link>
         </p>
-        {!register && <p><Link className="underlink" to="/forgot-password">Forgot password?</Link></p>}
+        {!register && <p><Link className="underlink" to="/forgot-password">{t("Forgot password?")}</Link></p>}
         {!register && error.toLowerCase().includes("verify your email") && <p><Link className="underlink" to="/verify-email">Resend verification link</Link></p>}
         <div className="google-auth-separator">Or use your Google account</div>
         <GoogleButton onSession={(data) => { setSession(data); navigate(roleHome(data.user.role)); }} />
@@ -650,6 +660,7 @@ function Workspace({ role }) {
   const { session, setSession, loading } = useContext(Auth);
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
+  const { t } = useLanguage();
   const main = useRef(null);
   const toggle = useRef(null);
   useEffect(() => {
@@ -678,7 +689,7 @@ function Workspace({ role }) {
         ? "Professional"
         : "Customer";
   return (
-    <><ConnectionBanner /><div className="studio-workspace-top"><Brand /><nav aria-label="Site shortcuts"><Link to="/">Home</Link><Link to="/#services-preview">Services</Link><Link className="studio-nav-cta" to={base}>My account <ArrowUpRight size={14}/></Link><button onClick={() => setSession(null)}>Sign out</button></nav></div><div className="admin-layout workspace">
+    <><ConnectionBanner /><div className="studio-workspace-top"><Brand /><nav aria-label="Site shortcuts"><Link to="/">{t("Home")}</Link><Link to="/#services-preview">{t("Services")}</Link><Link className="studio-nav-cta" to={base}>{t("My account")} <ArrowUpRight size={14}/></Link><button onClick={() => setSession(null)}>{t("Sign out")}</button><LanguageSwitcher /></nav></div><div className="admin-layout workspace">
       <aside
         id="workspace-navigation"
         className={open ? "admin-sidebar expanded" : "admin-sidebar"}
@@ -705,27 +716,27 @@ function Workspace({ role }) {
               onClick={() => setOpen(false)}
             >
               <Icon size={18} aria-hidden="true" />
-              {label}
+              {t(label)}
             </NavLink>
           ))}
           {role === "customer" && (
             <details className="workspace-more">
-              <summary>More</summary>
+              <summary>{t("More")}</summary>
               {customerItems.filter(([path]) => !customerNavigation.includes(path)).map(([path, label, Icon]) => (
                 <NavLink key={path} to={base + "/" + path} onClick={() => setOpen(false)}>
-                  <Icon size={18} aria-hidden="true" />{label}
+                  <Icon size={18} aria-hidden="true" />{t(label)}
                 </NavLink>
               ))}
             </details>
           )}
           {role !== "customer" && (
             <details className="workspace-more">
-              <summary>More tools</summary>
+              <summary>{t("More tools")}</summary>
               {(role === "admin" ? platformItems : professionalItems)
                 .filter(([path]) => !items.some(([visible]) => visible === path))
                 .map(([path, label, Icon]) => (
                   <NavLink key={path} to={base + "/" + path} onClick={() => setOpen(false)}>
-                    <Icon size={18} aria-hidden="true" />{label}
+                    <Icon size={18} aria-hidden="true" />{t(label)}
                   </NavLink>
                 ))}
             </details>
@@ -737,7 +748,7 @@ function Workspace({ role }) {
           </Link>
           <button onClick={() => setSession(null)}>
             <LogOut size={16} />
-            Log out
+            {t("Log out")}
           </button>
         </div>
       </aside>
@@ -769,6 +780,7 @@ function Workspace({ role }) {
 function WorkspacePage() {
   const { pathname } = useLocation();
   const { session } = useContext(Auth);
+  const { t } = useLanguage();
   const key = pathname.split("/")[2] || "";
   const isAdmin = session.user.role === "admin";
   const isCustomer = session.user.role === "customer";
@@ -858,7 +870,7 @@ function WorkspacePage() {
             ? "YOUR ACCOUNT"
             : "YOUR PROFESSIONAL BUSINESS"}
       </p>
-      <h1>{title}</h1>
+      <h1>{t(title)}</h1>
       {component}
     </section>
   );
@@ -879,6 +891,7 @@ function App() {
       <a className="skip-link" href="#main">
         Skip to content
       </a>
+      <LanguageProvider>
       <Providers>
         <Routes>
           <Route element={<Layout />}>
@@ -900,6 +913,7 @@ function App() {
             <Route path="verify-email" element={<VerifyEmailPage />} />
             <Route path="forgot-password" element={<ForgotPasswordPage />} />
             <Route path="reset-password" element={<ResetPasswordPage />} />
+            <Route path="professional-setup" element={<ProfessionalSetupPage />} />
             <Route path="*" element={<NotFound />} />
           </Route>
           <Route path="account" element={<Workspace role="customer" />}>
@@ -919,6 +933,7 @@ function App() {
           </Route>
         </Routes>
       </Providers>
+      </LanguageProvider>
     </BrowserRouter>
   );
 }

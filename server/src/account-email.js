@@ -4,7 +4,7 @@ import { AuthChallenge } from "./models.js";
 import { template } from "./notifications.js";
 
 const digest = (token) => createHash("sha256").update(token).digest("hex");
-const lifetimes = { email_verification: 30 * 60_000, password_reset: 30 * 60_000, google_nonce: 5 * 60_000 };
+const lifetimes = { email_verification: 30 * 60_000, password_reset: 30 * 60_000, professional_setup: 24 * 60 * 60_000, google_nonce: 5 * 60_000 };
 
 export async function createChallenge(user, purpose, session) {
   const token = randomBytes(32).toString("base64url");
@@ -50,13 +50,15 @@ export async function sendAccountEmail(config, user, purpose, token, transportFa
     return "simulated";
   }
   try {
-    const path = purpose === "email_verification" ? "/verify-email" : "/reset-password";
+    const path = purpose === "email_verification" ? "/verify-email" : purpose === "professional_setup" ? "/professional-setup" : "/reset-password";
     const url = new URL(path, config.CLIENT_ORIGIN);
     url.searchParams.set("token", token);
-    const title = purpose === "email_verification" ? "Verify your salon account email" : "Reset your salon account password";
+    const title = purpose === "email_verification" ? "Verify your salon account email" : purpose === "professional_setup" ? "Set up your professional account" : "Reset your salon account password";
     const message = purpose === "email_verification"
       ? `Use this one-time link within 30 minutes to verify your email address: ${url.toString()}`
-      : `Use this one-time link within 30 minutes to reset your password: ${url.toString()}`;
+      : purpose === "professional_setup"
+        ? `Use this one-time link within 24 hours to verify ownership of this email address and create your password: ${url.toString()} If you did not expect this invitation, ignore it.`
+        : `Use this one-time link within 30 minutes to reset your password: ${url.toString()}`;
     const transport = transportFactory({
       host: config.SMTP_HOST,
       port: config.SMTP_PORT,

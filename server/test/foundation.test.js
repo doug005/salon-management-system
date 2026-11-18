@@ -15,6 +15,7 @@ import {
 import { issueToken, allowRoles } from "../src/auth.js";
 import * as validation from "../src/validation.js";
 import jwt from "jsonwebtoken";
+import { readFile } from "node:fs/promises";
 const secret = "a-random-test-only-secret-32-characters-long";
 const app = createApp({
   CLIENT_ORIGIN: "http://localhost:3000",
@@ -219,6 +220,31 @@ test("configuration fails closed for missing credentials", () => {
       JWT_SECRET: "short",
     }),
   );
+});
+test("offline worker caches only the shell and explicitly public display APIs", async () => {
+  const worker = await readFile(new URL("../../client/public/sw.js", import.meta.url), "utf8");
+  assert.match(worker, /offline\.html/);
+  assert.match(worker, /PUBLIC_CACHE/);
+  assert.match(worker, /isAllowedPublicData/);
+  assert.match(worker, /authorization/i);
+  for (const privateRoute of ["/api/auth/", "/api/appointments", "/api/payments", "/api/professional/", "/api/admin/", "/api/notifications"]) {
+    assert.ok(!worker.includes(`'${privateRoute}'`), `${privateRoute} must never enter the public allowlist`);
+  }
+  assert.match(worker, /keys\.length > 100/);
+  assert.match(worker, /not available offline yet/);
+});
+test("English and Sesotho language switcher uses centralized persistent preference", async () => {
+  const [provider, ui] = await Promise.all([
+    readFile(new URL("../../client/src/i18n.jsx", import.meta.url), "utf8"),
+    readFile(new URL("../../client/src/main.jsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(provider, /localStorage\.getItem\("salon-language"\)/);
+  assert.match(provider, /localStorage\.setItem\("salon-language"/);
+  for (const [english, sesotho] of [["Home", "Lehae"], ["Services", "Litšebeletso"], ["Appointments", "Lipehelo"], ["Cancel", "Hlakola"], ["Confirm", "Netefatsa"], ["Settings", "Litlhophiso"]]) {
+    assert.ok(provider.includes(`"${english}": "${sesotho}"`), `${english} should have a centralized Sesotho translation`);
+  }
+  assert.match(ui, /<LanguageProvider>/);
+  assert.match(ui, /<LanguageSwitcher\s*\/>/);
 });
 test("malformed JSON, unknown endpoints, and CORS are handled", async () => {
   assert.equal(

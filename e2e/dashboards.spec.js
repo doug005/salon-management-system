@@ -211,7 +211,7 @@ test("admin account table search and platform health failure are accessible", as
     .getByRole("link", { name: "Add Professional", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Create professional account" }),
+    page.getByRole("heading", { name: "Invite a professional securely" }),
   ).toBeVisible();
   await page
     .getByRole("textbox", { name: "Search", exact: true })
@@ -239,45 +239,41 @@ test("admin account table search and platform health failure are accessible", as
   );
 });
 
-test("admin creates and activates only a synthetic professional through account table", async ({
+test("admin invites a synthetic professional without exposing a password or claiming email delivery", async ({
   page,
 }) => {
   await login(page, "admin");
   await page.goto("/admin/accounts");
   const suffix = Date.now();
-  const name = "DEMO UI professional";
-  await page.getByLabel("Name", { exact: true }).fill(name);
+  await expect(page.getByRole("heading", { name: "Invite a professional securely" })).toBeVisible();
+  await expect(page.getByLabel("Initial password")).toHaveCount(0);
+  await expect(page.getByLabel("WhatsApp number (international)")).toHaveCount(0);
   await page
-    .getByLabel("Email", { exact: true })
+    .getByLabel("Professional email address", { exact: true })
     .fill(`ui-professional-${suffix}@example.test`);
-  await page.getByLabel("Initial password").fill("Synthetic-ui-password-123");
-  const whatsapp = page.getByLabel("WhatsApp number (international)");
-  await whatsapp.fill("invalid number");
-  await page.getByRole("button", { name: "Create professional", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("valid international WhatsApp number");
-  await whatsapp.fill("+266 56903048");
   await page
-    .getByRole("button", { name: "Create professional", exact: true })
+    .getByRole("button", { name: "Send setup invitation", exact: true })
     .click();
+  await expect(page.locator('p[role="status"]')).toContainText("no email was sent");
   await expect(
-    page
-      .getByRole("status")
-      .filter({ hasText: "Professional account created" }),
-  ).toContainText("Professional account created");
-  await page.getByRole("textbox", { name: "Search", exact: true }).fill(name);
+    page.getByRole("heading", { name: "Invite a professional securely" }),
+  ).toBeVisible();
+  await page.getByRole("textbox", { name: "Search", exact: true }).fill(`ui-professional-${suffix}@example.test`);
   const row = page
     .getByRole("row")
-    .filter({ has: page.getByRole("cell", { name, exact: true }) });
+    .filter({ hasText: `ui-professional-${suffix}@example.test` });
   await expect(
     row.getByRole("cell", { name: "professional", exact: true }),
   ).toBeVisible();
+  await expect(row.getByText("Invitation pending · Active", { exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Resend secure setup invitation" })).toBeVisible();
   await row.getByRole("button", { name: "Deactivate account" }).click();
   await expect(
-    row.getByRole("cell", { name: "Inactive", exact: true }),
+    row.getByText("Invitation pending · Inactive", { exact: true }),
   ).toBeVisible();
   await row.getByRole("button", { name: "Activate account" }).click();
   await expect(
-    row.getByRole("cell", { name: "Active", exact: true }),
+    row.getByText("Invitation pending · Active", { exact: true }),
   ).toBeVisible();
 });
 

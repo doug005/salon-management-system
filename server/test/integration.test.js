@@ -301,6 +301,84 @@ test("new account email verification and single-use password reset are time-limi
   assert.equal((await request(app).post("/api/auth/login").send({ email: credentials.email, password: credentials.password })).status, 401);
   assert.equal((await request(app).post("/api/auth/login").send({ email: credentials.email, password: nextPassword })).status, 200);
 });
+test("professional invitation is admin-only, duplicate-safe, unpublished, and requires one-time email-verified password setup", async () => {
+  const email = "invited-professional@example.test";
+  const invited = await auth("post", "/api/admin/professional-invitations", admin)
+    .send({ email });
+  assert.equal(invited.status, 201, JSON.stringify(invited.body));
+  assert.equal(invited.body.account.role, "professional");
+  assert.equal(invited.body.account.emailVerified, false);
+  assert.equal(invited.body.account.setupPending, true);
+  assert.equal(invited.body.password, undefined);
+  assert.equal(invited.body.token, undefined);
+  assert.equal(invited.body.setupToken, undefined);
+  assert.equal(invited.body.emailDeliveryStatus, "sent");
+  const user = await User.findOne({ email });
+  assert.equal(user.role, "professional");
+  assert.equal(user.emailVerified, false);
+  assert.equal(user.setupPending, true);
+  const profile = await ProfessionalProfile.findOne({ professional: user._id });
+  assert.equal(profile.published, false);
+  assert.equal(profile.whatsappNumber, "");
+  assert.equal(profile.salonName, "Business setup required");
+  user.password = "Synthetic-temporary-password-123";
+  await user.save();
+  const pendingLogin = await request(app).post("/api/auth/login").send({
+    email,
+    password: "Synthetic-temporary-password-123",
+  });
+  assert.equal(pendingLogin.status, 403);
+  assert.match(pendingLogin.body.message, /one-time secure setup link/i);
+
+  assert.equal((await auth("post", "/api/admin/professional-invitations", professional)
+    .send({ email: "another-invite@example.test" })).status, 403);
+  assert.equal((await auth("post", "/api/admin/professional-invitations", admin)
+    .send({ email })).status, 409);
+
+  const firstInvite = emailOutbox.findLast((mail) => mail.subject.includes("Set up your professional account"));
+  const firstToken = new URL(firstInvite.text.match(/https?:\/\/\S+/)[0]).searchParams.get("token");
+  const resend = await auth("post", `/api/admin/professional-invitations/${user._id}/resend`, admin).send({});
+  assert.equal(resend.status, 202, JSON.stringify(resend.body));
+  assert.equal(resend.body.emailDeliveryStatus, "sent");
+  assert.equal(resend.body.token, undefined);
+  const secondInvite = emailOutbox.findLast((mail) => mail.subject.includes("Set up your professional account"));
+  const secondToken = new URL(secondInvite.text.match(/https?:\/\/\S+/)[0]).searchParams.get("token");
+  assert.notEqual(firstToken, secondToken);
+
+  const weak = await request(app).post("/api/auth/professional-setup").set("Origin", origin)
+    .send({ token: secondToken, name: "Professional Name", password: "short" });
+  assert.equal(weak.status, 400);
+  const obsolete = await request(app).post("/api/auth/professional-setup").set("Origin", origin)
+    .send({ token: firstToken, name: "Professional Name", password: "Secure-invited-password-123" });
+  assert.equal(obsolete.status, 400);
+  const setup = await request(app).post("/api/auth/professional-setup").set("Origin", origin)
+    .send({ token: secondToken, name: "Professional Name", password: "Secure-invited-password-123" });
+  assert.equal(setup.status, 200, JSON.stringify(setup.body));
+  assert.equal(setup.body.user.role, "professional");
+  assert.equal(setup.body.user.emailVerified, true);
+  assert.equal((await User.findById(user._id)).setupPending, false);
+  assert.equal((await request(app).post("/api/auth/professional-setup").set("Origin", origin)
+    .send({ token: secondToken, name: "Professional Name", password: "Another-secure-password-123" })).status, 400);
+  assert.equal((await auth("put", "/api/professional/settings", setup.body).send({
+    published: false,
+    salonName: "Professional Business Name",
+    description: "",
+    demo: false,
+    whatsappNumber: "",
+    phone: "",
+    email: "",
+    address: "",
+    openingHours: { 1: "09:00-17:00", 2: "09:00-17:00", 3: "09:00-17:00", 4: "09:00-17:00", 5: "09:00-17:00" },
+    closedDates: [],
+    bookingFeeLisente: 5000,
+    feeDeducted: true,
+    holdMinutes: 60,
+    policyText: "The professional sets the booking policy for this business.",
+    changeNoticeHours: 24,
+  })).status, 400);
+  const login = await request(app).post("/api/auth/login").send({ email, password: "Secure-invited-password-123" });
+  assert.equal(login.status, 200);
+});
 test("Google sign-in nonce is short-lived, hashed at rest and consumable once", async () => {
   const response = await request(app)
     .post("/api/auth/google/nonce")
@@ -1398,6 +1476,7 @@ test("admin manages accounts and platform settings but cannot access or verify a
           "phone",
           "role",
           "active",
+          "setupPending",
           "createdAt",
         ].includes(key),
         key,

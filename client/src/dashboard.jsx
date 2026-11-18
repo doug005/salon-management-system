@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth, useData } from "./state.jsx";
 import { request, dateTime, money, mediaUrl } from "./api.js";
 import { Badge, Loading } from "./operations.jsx";
+import { useLanguage } from "./i18n.jsx";
 
 export function DataTable({ caption, columns, items }) {
   return (
@@ -84,6 +85,7 @@ const localDate = (value) =>
 const current = (a) =>
   !["cancelled", "completed", "no_show"].includes(a.status);
 export function AppointmentSummary({ title, items, customer = false }) {
+  const { t } = useLanguage();
   return (
     <section className="panel dashboard-section">
       <div className="section-heading">
@@ -91,7 +93,7 @@ export function AppointmentSummary({ title, items, customer = false }) {
         <Link
           to={customer ? "/account/appointments" : "/professional/appointments"}
         >
-          Manage appointments
+          {t("Manage appointments")}
         </Link>
       </div>
       {items.length ? (
@@ -100,7 +102,7 @@ export function AppointmentSummary({ title, items, customer = false }) {
           items={items}
           columns={[
             {
-              label: "Appointment",
+              label: t("Appointment"),
               render: (a) => (
                 <>
                   <strong>{a.serviceName}</strong>
@@ -108,18 +110,18 @@ export function AppointmentSummary({ title, items, customer = false }) {
                 </>
               ),
             },
-            { label: "Date & time", render: (a) => dateTime(a.startsAt) },
+            { label: t("Date & time"), render: (a) => dateTime(a.startsAt) },
             {
-              label: customer ? "Professional" : "Customer",
+              label: t(customer ? "Professional" : "Customer"),
               render: (a) =>
                 customer ? a.professional?.name : (a.customer?.name || a.guestCustomer?.name),
             },
-            { label: "Status", render: (a) => <Badge value={a.status} /> },
-            { label: "Total", render: (a) => money(a.totalLisente) },
+            { label: t("Status"), render: (a) => <Badge value={a.status} /> },
+            { label: t("Total"), render: (a) => money(a.totalLisente) },
           ]}
         />
       ) : (
-        <p className="empty-message">No appointments to show.</p>
+        <p className="empty-message">{t("No appointments to show.")}</p>
       )}
     </section>
   );
@@ -133,6 +135,7 @@ function useLocalClock() {
   return now;
 }
 export function ProfessionalOverview() {
+  const { t } = useLanguage();
   const now = useLocalClock();
   const stats = useData("/professional/overview");
   const profile = useData("/professional/settings");
@@ -147,9 +150,9 @@ export function ProfessionalOverview() {
     <>
       <div className="page-actions">
         <Link className="button" to="/professional/book">
-          New booking
+          {t("New booking")}
         </Link>
-        <Link to="/professional/availability">Manage availability</Link>
+        <Link to="/professional/availability">{t("Manage availability")}</Link>
       </div>
       <Loading state={stats} />
       {!profile.loading && profile.data && !profile.data.whatsappNumber && (
@@ -162,30 +165,30 @@ export function ProfessionalOverview() {
         <div className="stats">
           {[
             [
-              "Total Appointments",
+              t("Total Appointments"),
               stats.data.appointments,
               "appointments",
             ],
             [
-              "Pending confirmations",
+              t("Pending confirmations"),
               stats.data.pendingConfirmations,
               "pending-confirmations",
             ],
-            ["Customers", stats.data.customers, "customers"],
+            [t("Customers"), stats.data.customers, "customers"],
           ].map(([label, value, path]) => (
             <Link className="panel" key={label} to={"/professional/" + path}>
               <p>{label}</p>
               <strong className="stat-value">{value}</strong>
-              <small>View details →</small>
+              <small>{t("View details")} →</small>
             </Link>
           ))}
         </div>
       )}
       {calendar.data && (
         <>
-          <AppointmentSummary title="Today's appointments" items={today} />
+          <AppointmentSummary title={t("Today's appointments")} items={today} />
           <AppointmentSummary
-            title="Upcoming bookings"
+            title={t("Upcoming bookings")}
             items={upcoming.slice(0, 10)}
           />
           {upcoming.length > 10 && (
@@ -196,18 +199,19 @@ export function ProfessionalOverview() {
         </>
       )}
       <section className="panel">
-        <h2>Manage your business</h2>
+        <h2>{t("Manage your business")}</h2>
         <div className="quick-links">
-          <Link to="/professional/services">Services & prices</Link>
-          <Link to="/professional/advertisements">Advertisements</Link>
-          <Link to="/professional/reports">Financial reports</Link>
-          <Link to="/professional/settings">Business & WhatsApp settings</Link>
+          <Link to="/professional/services">{t("Services & prices")}</Link>
+          <Link to="/professional/advertisements">{t("Advertisements")}</Link>
+          <Link to="/professional/reports">{t("Financial reports")}</Link>
+          <Link to="/professional/settings">{t("Business & WhatsApp settings")}</Link>
         </div>
       </section>
     </>
   );
 }
 export function CustomerOverview() {
+  const { t } = useLanguage();
   const now = useLocalClock();
   const state = useAppointmentCalendar();
   const upcoming = (state.data || [])
@@ -217,40 +221,40 @@ export function CustomerOverview() {
     <>
       <div className="page-actions">
         <Link className="button" to="/account/book">
-          Book a service
+          {t("Book a service")}
         </Link>
-        <Link to="/account/professionals">Browse professionals</Link>
+        <Link to="/account/professionals">{t("Browse professionals")}</Link>
       </div>
       <Loading state={state} />
       {state.data && (
         <>
           <div className="stats">
             <div className="panel">
-              <p>Upcoming appointments</p>
+              <p>{t("Upcoming appointments")}</p>
               <strong className="stat-value">{upcoming.length}</strong>
             </div>
             <div className="panel">
-              <p>Awaiting payment</p>
+              <p>{t("Awaiting payment")}</p>
               <strong className="stat-value">
                 {upcoming.filter((a) => a.status === "awaiting_payment").length}
               </strong>
             </div>
             <div className="panel">
-              <p>Completed visits</p>
+              <p>{t("Completed visits")}</p>
               <strong className="stat-value">
                 {state.data.filter((a) => a.status === "completed").length}
               </strong>
             </div>
           </div>
           <AppointmentSummary
-            title="Upcoming appointments"
+            title={t("Upcoming appointments")}
             items={upcoming.slice(0, 10)}
             customer
           />
         </>
       )}
       <section className="panel">
-        <h2>Payment & booking help</h2>
+        <h2>{t("Payment & booking help")}</h2>
         <p>
           Arrange payment directly with your professional. Your appointment is
           confirmed only after they independently verify receipt. You can find
@@ -258,11 +262,11 @@ export function CustomerOverview() {
           appointment details.
         </p>
         <div className="quick-links">
-          <Link to="/account/payments">Payment status</Link>
+          <Link to="/account/payments">{t("Payment status")}</Link>
           <Link to="/account/appointments">
-            Manage or cancel an appointment
+            {t("Manage or cancel an appointment")}
           </Link>
-          <Link to="/account/history">Booking history</Link>
+          <Link to="/account/history">{t("Booking history")}</Link>
         </div>
       </section>
     </>

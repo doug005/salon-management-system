@@ -18,12 +18,15 @@
     "demo": "concurrently -k -n api,web \"npm run demo -w server\" \"npm run dev -w client\"",
     "demo:seed": "npm run demo:seed -w server",
     "demo:credentials": "npm run demo:credentials -w server",
+    "invite:professionals": "node --env-file-if-exists=server/.env server/scripts/invite-professionals.js",
+    "presentation:build": "node presentation/build_presentation.js",
     "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=.local/browsers playwright test",
     "lint": "npm run check -w client && eslint server/src server/scripts server/test api"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",
     "concurrently": "^9.2.1",
+    "pptxgenjs": "^4.0.1",
     "prettier": "^3.10.1"
   }
 }

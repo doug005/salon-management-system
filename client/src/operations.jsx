@@ -12,32 +12,37 @@ import {
 import { request, money, dateTime, acceptSession, mediaUrl } from "./api.js";
 import { useAuth, useData } from "./state.jsx";
 import { normalizeInternationalPhone } from "./phone.js";
+import { useLanguage } from "./i18n.jsx";
+import { useOnline } from "./offline.jsx";
 export function Feedback({ error, message }) {
+  const { t } = useLanguage();
   return (
     <>
       {error && (
         <p className="error" role="alert">
-          {error}
+          {t(error)}
         </p>
       )}
       {message && (
         <p className="notice" role="status">
-          {message}
+          {t(message)}
         </p>
       )}
     </>
   );
 }
 export function Loading({ state }) {
+  const { t } = useLanguage();
   return state.error ? (
     <p className="error" role="alert">
       {state.error}
     </p>
   ) : state.loading ? (
-    <p role="status">Loading…</p>
+    <p role="status">{t("Loading…")}</p>
   ) : null;
 }
 export function WhatsApp({ appointment }) {
+  const { t } = useLanguage();
   const id =
     typeof appointment?.professional === "object"
       ? appointment.professional?._id
@@ -48,7 +53,7 @@ export function WhatsApp({ appointment }) {
   const business = profile.data;
   if (!business?.whatsappNumber)
     return (
-      <p>Professional WhatsApp contact is not configured or not published.</p>
+      <p>{t("Professional WhatsApp contact is not configured or not published.")}</p>
     );
   const message = appointment
     ? `Hello, I would like to book an appointment.\n\nService: ${appointment.serviceName}\nDate and time: ${dateTime(appointment.startsAt)} (Africa/Maseru)\nBooking Reference: ${appointment.reference}\nBooking Fee: ${money(appointment.feeLisente)}\n\nPlease let me know how I can complete the booking fee payment. This message does not confirm payment.`
@@ -60,7 +65,7 @@ export function WhatsApp({ appointment }) {
       rel="noreferrer"
       href={`https://wa.me/${String(business.whatsappNumber).replace(/\D/g, "")}?text=${encodeURIComponent(message)}`}
     >
-      Open WhatsApp
+      {t("Open WhatsApp")}
     </a>
   );
 }
@@ -74,7 +79,9 @@ const validCalendarDate = (value) => {
   return Number.isFinite(+date) && date.toISOString().slice(0, 10) === value;
 };
 export function Booking({ embedded = false }) {
+  const { t } = useLanguage();
   const { session, loading } = useAuth();
+  const online = useOnline();
   const [searchParams] = useSearchParams();
   const own = session?.user.role === "professional";
   const [selectedProfessional, setProfessional] = useState(searchParams.get("professional") || ""),
@@ -125,6 +132,10 @@ export function Booking({ embedded = false }) {
   function submit(e) {
     e.preventDefault();
     setError("");
+    if (!online) {
+      setError(t("You are offline. Booking requests are not saved or queued. Reconnect before booking."));
+      return;
+    }
     const errors = {};
     if (!professional || !services.data?.items.some((item) => item._id === service && item.active && String(item.professional) === String(professional)))
       errors.service = "Choose an active service offered by this professional.";
@@ -155,6 +166,11 @@ export function Booking({ embedded = false }) {
   }
   async function confirmBooking() {
     if (submitting.current || !formRef.current) return;
+    if (!online) {
+      setError(t("You are offline. Booking requests are not saved or queued. Reconnect before booking."));
+      setConfirming(false);
+      return;
+    }
     submitting.current = true;
     const whatsappWindow = !own ? window.open("about:blank", "_blank") : null;
     if (whatsappWindow) whatsappWindow.opener = null;
@@ -198,11 +214,11 @@ export function Booking({ embedded = false }) {
   }
   return (
     <section className="container section narrow">
-      <p className="eyebrow">YOUR NEXT VISIT</p>
+      <p className="eyebrow">{t("YOUR NEXT VISIT")}</p>
       {embedded ? (
-        <h2>Choose your professional and service</h2>
+        <h2>{t("Choose your professional and service")}</h2>
       ) : (
-        <h1>Book a professional.</h1>
+        <h1>{t("Book a professional.")}</h1>
       )}
       <p>
         Times use Africa/Maseru. Each professional sets their own services,
@@ -222,7 +238,7 @@ export function Booking({ embedded = false }) {
         </div>
       ) : created ? (
         <div className="panel">
-          <h2>Booking request saved</h2>
+          <h2>{t("Booking request saved")}</h2>
           <p>
             Reference: <strong>{created.reference}</strong>
           </p>
@@ -232,7 +248,7 @@ export function Booking({ embedded = false }) {
           <p>
             Booking fee {money(created.feeLisente)} · Total {money(created.totalLisente)}
           </p>
-          <p>Appointment status: Pending Confirmation · Payment status: Awaiting Verification.</p>
+          <p>{t("Appointment status:")} {t("Pending Confirmation")} · {t("Payment status:")} {t("Awaiting Verification")}.</p>
           <p>Payment is arranged outside this website; no payment is recorded until the professional enters the actual receipt. WhatsApp will not send the message or verify payment. The appointment is confirmed only after the professional independently verifies actual receipt.</p>
           {!own && business?.whatsappNumber && (
             <a
@@ -241,7 +257,7 @@ export function Booking({ embedded = false }) {
               rel="noreferrer"
               href={`https://wa.me/${String(business.whatsappNumber).replace(/\D/g, "")}?text=${encodeURIComponent(`Hello, I would like to book an appointment.\n\nName: ${session.user.name}\nService: ${created.serviceName}\nDate and time: ${dateTime(created.startsAt)} (Africa/Maseru)\nService Price: ${money(created.priceLisente)}\nBooking Reference: ${created.reference}\nBooking Fee: ${money(created.feeLisente)}\n\nPlease let me know how I can complete the booking fee payment.`)}`}
             >
-              Continue on WhatsApp
+              {t("Continue on WhatsApp")}
             </a>
           )}
           <Link to={own ? "/professional/appointments" : "/account"}>
@@ -252,10 +268,10 @@ export function Booking({ embedded = false }) {
         <form ref={formRef} className="panel form-grid" onSubmit={submit}>
           <Loading state={services} />
           {own ? (
-            <p>You are booking for your own business only.</p>
+            <p>{t("You are booking for your own business only.")}</p>
           ) : (
             <label>
-              Professional
+              {t("Professional")}
               <select
                 required
                 value={professional}
@@ -279,14 +295,14 @@ export function Booking({ embedded = false }) {
             </label>
           )}
           {own && <div className="form-grid">
-            <label>Booking for
+            <label>{t("Booking for")}
               <select value={bookingMode} onChange={(e) => setBookingMode(e.target.value)}>
                 <option value="phone">Customer calling by phone (no account needed)</option>
                 <option value="registered">Registered customer</option>
               </select>
             </label>
             {bookingMode === "phone" && <>
-              <label>Customer name<input required minLength={2} maxLength={100} value={guestName} aria-invalid={Boolean(fieldErrors.guestName)} aria-describedby={fieldErrors.guestName ? "booking-guest-name-error" : undefined} onChange={e => { setGuestName(e.target.value); clearFieldError("guestName"); }} />{fieldErrors.guestName && <small id="booking-guest-name-error" className="field-error" role="alert">{fieldErrors.guestName}</small>}</label>
+              <label>{t("Customer name")}<input required minLength={2} maxLength={100} value={guestName} aria-invalid={Boolean(fieldErrors.guestName)} aria-describedby={fieldErrors.guestName ? "booking-guest-name-error" : undefined} onChange={e => { setGuestName(e.target.value); clearFieldError("guestName"); }} />{fieldErrors.guestName && <small id="booking-guest-name-error" className="field-error" role="alert">{t(fieldErrors.guestName)}</small>}</label>
               <label>Customer phone contact<input required minLength={5} maxLength={40} type="tel" inputMode="tel" placeholder="+266 …" value={guestPhone} aria-invalid={Boolean(fieldErrors.guestPhone)} aria-describedby={fieldErrors.guestPhone ? "booking-guest-phone-error" : undefined} onChange={e => { setGuestPhone(e.target.value); clearFieldError("guestPhone"); }} />{fieldErrors.guestPhone && <small id="booking-guest-phone-error" className="field-error" role="alert">{fieldErrors.guestPhone}</small>}</label>
               <label>Customer WhatsApp (optional)<input maxLength={40} type="tel" inputMode="tel" placeholder="+266 …" value={guestWhatsApp} aria-invalid={Boolean(fieldErrors.guestWhatsApp)} aria-describedby={fieldErrors.guestWhatsApp ? "booking-guest-whatsapp-error" : undefined} onChange={e => { setGuestWhatsApp(e.target.value); clearFieldError("guestWhatsApp"); }} />{fieldErrors.guestWhatsApp && <small id="booking-guest-whatsapp-error" className="field-error" role="alert">{fieldErrors.guestWhatsApp}</small>}</label>
             </>}
@@ -312,7 +328,7 @@ export function Booking({ embedded = false }) {
             </label>
           )}
           <label>
-            Service
+            {t("Service")}
             <select
               required
               disabled={!professional}
@@ -337,7 +353,7 @@ export function Booking({ embedded = false }) {
             {fieldErrors.service && <small id="booking-service-error" className="field-error" role="alert">{fieldErrors.service}</small>}
           </label>
           <label>
-            Date
+            {t("Date")}
             <input
               type="date"
               required
@@ -354,7 +370,7 @@ export function Booking({ embedded = false }) {
             {fieldErrors.day && <small id="booking-date-error" className="field-error" role="alert">{fieldErrors.day}</small>}
           </label>
           <label>
-            Available time
+            {t("Available time")}
             <select
               required
               value={time}
@@ -378,16 +394,16 @@ export function Booking({ embedded = false }) {
             </p>
           )}
           {day && service && slots.data?.slots?.length === 0 && (
-            <p>No available times for this professional.</p>
+            <p>{t("No available times for this professional.")}</p>
           )}
           <label>
-            Notes (optional)
+            {t("Notes (optional)")}
             <textarea name="notes" maxLength={1000} />
           </label>
           {business && (
             <div className="policy">
               <p>
-                Booking fee:{" "}
+                {t("Booking fee")}:{" "}
                 <strong>{money(business.bookingFeeLisente)}</strong> ·{" "}
                 {business.feeDeducted
                   ? "deducted from service price"
@@ -404,7 +420,7 @@ export function Booking({ embedded = false }) {
               )}
               <p>{business.policyText}</p>
               <p>
-                Policy version {business.policyVersion} · Hold{" "}
+                {t("Policy version")} {business.policyVersion} · {t("Hold")}{" "}
                 {business.holdMinutes} minutes
               </p>
               <label className="checkbox">
@@ -415,8 +431,9 @@ export function Booking({ embedded = false }) {
             </div>
           )}
           <Feedback error={error} />
-          <button className="button" disabled={busy || !time || !business || !business.whatsappNumber}>
-            Request Book
+          {!online && <p className="offline-action-note" role="status">{t("Booking requires a connection. Your request will not be queued offline.")}</p>}
+          <button className="button" disabled={!online || busy || !time || !business || !business.whatsappNumber}>
+            {t("Request Book")}
           </button>
         </form>
       )}
@@ -428,7 +445,7 @@ export function Booking({ embedded = false }) {
             aria-modal="true"
             aria-labelledby="booking-confirmation-title"
           >
-            <h2 id="booking-confirmation-title">Are you sure you want to book?</h2>
+            <h2 id="booking-confirmation-title">{t("Are you sure you want to book?")}</h2>
             <dl>
               <dt>Professional</dt><dd>{business?.salonName || session?.user.name}</dd>
               <dt>Service</dt><dd>{selected?.name || "—"}</dd>
@@ -436,11 +453,11 @@ export function Booking({ embedded = false }) {
               <dt>Service price</dt><dd>{selected ? money(selected.priceLisente) : "—"}</dd>
               <dt>Booking fee</dt><dd>{business ? money(business.bookingFeeLisente) : "—"}</dd>
             </dl>
-            <p>Confirming creates a pending request. Payment is arranged separately and is never confirmed by WhatsApp.</p>
+            <p>{t("Confirming creates a pending request. Payment is arranged separately and is never confirmed by WhatsApp.")}</p>
             <div className="record-actions">
-              <button type="button" disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
+              <button type="button" disabled={busy} onClick={() => setConfirming(false)}>{t("Cancel")}</button>
               <button type="button" className="button" disabled={busy} onClick={confirmBooking}>
-                {busy ? "Saving request…" : "Confirm"}
+                {t(busy ? "Saving request…" : "Confirm")}
               </button>
             </div>
           </section>
@@ -1191,6 +1208,7 @@ export function Manage({ kind }) {
 }
 export function Payments({ pending = false }) {
   const { session } = useAuth();
+  const online = useOnline();
   const appointments = useData("/appointments?limit=100");
   const [error, setError] = useState(""),
     [message, setMessage] = useState(""),
@@ -1199,6 +1217,10 @@ export function Payments({ pending = false }) {
     canVerify = session.user.role === "professional";
   async function record(e) {
     e.preventDefault();
+    if (!online) {
+      setError("Payment recording requires an internet connection and is never queued offline.");
+      return;
+    }
     const form = e.currentTarget;
     const body = Object.fromEntries(new FormData(form));
     body.amountLisente = Number(body.amountLisente);
@@ -1213,6 +1235,10 @@ export function Payments({ pending = false }) {
     }
   }
   async function review(id, action, note, reload) {
+    if (!online) {
+      setError("Payment verification requires an internet connection and is never queued offline.");
+      return;
+    }
     try {
       await request(`/payments/${id}/review`, {
         method: "POST",
@@ -1233,6 +1259,7 @@ export function Payments({ pending = false }) {
           : "Your professional records and independently verifies payments. A receipt or WhatsApp message alone does not confirm payment."}
       </p>
       <Feedback error={error} message={message} />
+      {!online && <p className="offline-action-note" role="status">Payment recording and verification are unavailable offline. Nothing will be queued.</p>}
       {canRecord && !pending && (
         <form className="panel form-grid" onSubmit={record}>
           <h2>Record manual payment</h2>
@@ -1283,7 +1310,7 @@ export function Payments({ pending = false }) {
             Evidence URL (optional, HTTPS)
             <input type="url" name="evidenceUrl" />
           </label>
-          <button className="button">Record awaiting verification</button>
+          <button className="button" disabled={!online}>Record awaiting verification</button>
         </form>
       )}
       <Collection
@@ -1305,13 +1332,14 @@ export function Payments({ pending = false }) {
             canVerify={canVerify}
             review={review}
             pending={pending}
+            online={online}
           />
         )}
       </Collection>
     </>
   );
 }
-function PaymentRow({ item, reload, canVerify, review, pending }) {
+function PaymentRow({ item, reload, canVerify, review, pending, online }) {
   const [note, setNote] = useState("");
   if (pending && item.status !== "awaiting_verification") return null;
   return (
@@ -1353,19 +1381,19 @@ function PaymentRow({ item, reload, canVerify, review, pending }) {
           </label>
           <div className="record-actions">
             <button
-              disabled={note.trim().length < 3}
+              disabled={!online || note.trim().length < 3}
               onClick={() => review(item._id, "verify", note, reload)}
             >
               I independently verified received funds
             </button>
             <button
-              disabled={note.trim().length < 3}
+              disabled={!online || note.trim().length < 3}
               onClick={() => review(item._id, "reject", note, reload)}
             >
               Reject
             </button>
             <button
-              disabled={note.trim().length < 3}
+              disabled={!online || note.trim().length < 3}
               onClick={() => review(item._id, "request_info", note, reload)}
             >
               Request information

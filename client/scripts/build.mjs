@@ -16,7 +16,7 @@ export async function buildClient(watch = false) {
     path.join(root, "index.html"),
     path.join(root, "dist/index.html"),
   );
-  for (const asset of ["manifest.webmanifest", "sw.js", "icon.svg", "icon-192.png", "icon-512.png"])
+  for (const asset of ["manifest.webmanifest", "sw.js", "offline.html", "offline-language.js", "icon.svg", "icon-192.png", "icon-512.png"])
     await copyFile(path.join(root, "public", asset), path.join(root, "dist", asset));
   const options = {
     absWorkingDir: root,

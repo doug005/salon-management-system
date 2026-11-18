@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
 import { useData } from "./state.jsx";
 import { request, dateTime, mediaUrl } from "./api.js";
+import { findServiceInspiration, ServicePhoto } from "./service-photos.jsx";
 export function PublicAdvertisements({ professional }) {
   const location = useLocation();
   const state = useData(
@@ -73,7 +74,7 @@ export function ProfessionalPublicProfile() {
         {services.data?.items.length === 0 && <p>No published services yet.</p>}
         <div className="discovery-grid">
           {services.data?.items.map((item, i) => <Link className="discovery-card" key={item._id} to={`/services/${item._id}`} state={{ returnTo: location.pathname, returnLabel: "← Back to professional profile" }}>
-            <div className="discovery-media">{item.imageUrl ? <img src={mediaUrl(item.imageUrl)} alt={item.name} loading="lazy"/> : <span className="discovery-placeholder">✂</span>}<span className="discovery-number">{String(i + 1).padStart(2, "0")}</span></div>
+            <div className="discovery-media">{item.imageUrl || findServiceInspiration(item) ? <ServicePhoto service={item} /> : <span className="discovery-placeholder">✂</span>}<span className="discovery-number">{String(i + 1).padStart(2, "0")}</span></div>
             <div className="discovery-body"><div className="discovery-kicker">SERVICE <span>↗</span></div><h3>{item.name}</h3><p className="discovery-description">{item.description}</p><div className="discovery-meta"><strong>{(item.priceLisente / 100).toLocaleString("en-LS", {style:"currency",currency:"LSL"})}</strong><span>{item.durationMinutes} min</span></div></div>
           </Link>)}
         </div>

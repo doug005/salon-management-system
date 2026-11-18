@@ -50,6 +50,8 @@ export function authenticate(secret) {
         session.userVersion !== user.tokenVersion
       )
         return res.status(401).json({ message: "Session unavailable." });
+      if (user.setupPending === true)
+        return res.status(403).json({ message: "Complete the one-time secure setup link sent to your email before signing in." });
       if (!isCurrentRole(user.role))
         return res.status(403).json({
           message: "Account role requires an explicit migration mapping.",
@@ -92,6 +94,8 @@ export function refreshCookie(req) {
   return value?.slice("salon_refresh=".length) || "";
 }
 export async function startSession(user, res, config) {
+  if (user.setupPending === true)
+    throw Object.assign(new Error("Complete the one-time secure setup link sent to your email before signing in."), { status: 403 });
   if (user.emailVerified === false)
     throw Object.assign(new Error("Verify your email address before signing in."), { status: 403 });
   if (!isCurrentRole(user.role))
@@ -143,6 +147,11 @@ export async function rotateSession(req, res, config) {
     await session.deleteOne();
     clearCookie(res, config);
     return res.status(401).json({ message: "Session unavailable." });
+  }
+  if (user.setupPending === true) {
+    await session.deleteOne();
+    clearCookie(res, config);
+    return res.status(403).json({ message: "Complete the one-time secure setup link sent to your email before signing in." });
   }
   if (user.emailVerified === false) {
     await session.deleteOne();

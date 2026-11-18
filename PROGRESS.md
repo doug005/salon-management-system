@@ -1,3 +1,27 @@
+# Urgent recovery — presentation, onboarding and local verification (2026-11-18)
+
+## Current state
+
+- Recovered the previous agent's work in place. Branch is `main`, HEAD started at `ce0a7eb`; no reset, discard, remote change, push, deployment, or real-account contact occurred. The existing `.gitignore` `.vercel` addition was present before this recovery and is intentionally excluded from the planned commit.
+- Presentation deliverables are present: `presentation/Salon_Management_ICT4D_Presentation.pptx`, `presentation/Presentation_Script.md`, `presentation/Live_Demo_Guide.md`, `presentation/Submission_Checklist.md`, and image credits. The PPTX ZIP integrity check passed.
+- Local checks after the recovery fixes: `npm run lint` passed; `npm run build` passed without duplicate-key warnings; `MONGOMS_RUNTIME_DOWNLOAD=false npm test` passed **53/53**; `MONGOMS_RUNTIME_DOWNLOAD=false TMPDIR="$PWD/.local/tmp" npm run test:e2e` passed **15/15**. The first browser run exposed obsolete selectors and stale synthetic demo sign-in assumptions; tests were corrected to match secure invitations and current UI. Login throttling was cleared only by stopping/restarting the isolated local demo process; its persistent synthetic database was not reset. No production database or hosted service was used.
+- E2E coverage verifies English/Sesotho preference persistence, offline fallback/public caching boundaries, professional appointment table/payment dialog, synthetic WhatsApp URL construction, manual receipt verification, service-image workflow, registration/authentication, and role isolation. It does not represent live email delivery, a real WhatsApp message, real funds, or tests of the four invitees' actual accounts.
+
+## Professional invitation status and safety
+
+- The four requested addresses are referenced in the protected invitation helper's exact allowlist check. No real professional account was looked up, created, or invited; no inbox was accessed and no password or email-verification bypass was used. Inviting them requires an authenticated administrator, a real configured database, and explicitly approved working SMTP; SMTP safe mode remains the default. Do not execute the invitation helper during local test verification.
+- Google real-provider login and SMTP delivery remain untested. Do not claim production readiness, delivery to the four people, or successful setup by them.
+
+## Remaining deployment/presentation limitations
+
+- No deployment or push was requested or performed. Existing deployment readiness remains blocked by documented hosting/database/media-storage and SMTP prerequisites; see `docs/DEPLOYMENT.md` and `docs/PROFESSIONAL_ONBOARDING.md`.
+- Sesotho coverage is partial and untranslated strings fall back to English. Service imagery contains illustrative/licensed examples and should not be presented as real professional portfolios. PWA offline mode is limited to the shell/public information; private data and booking/payment actions are neither cached nor queued.
+- Before presenting, confirm group/partner details against the official assignment brief and test the PPTX on the presentation machine. See `presentation/Submission_Checklist.md`.
+
+## Resume
+
+Review the staged diff and make one local commit of completed requested implementation, presentation, documentation, and test updates. Exclude `.gitignore`; do not push or deploy. Preserve all synthetic/local and existing databases.
+
 # Handover completion — appointments, WhatsApp, validation and authentication (2026-11-18)
 
 ## Current state

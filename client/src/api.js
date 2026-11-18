@@ -28,7 +28,7 @@ export async function request(path, options = {}, retry = true) {
     credentials: "include",
     headers: {
       ...(options.body ? { "Content-Type": "application/json" } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(token && !path.startsWith("/public/") ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
     body:

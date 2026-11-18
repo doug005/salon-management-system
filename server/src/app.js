@@ -164,7 +164,7 @@ export function createApp(config) {
     }),
   );
   app.use(
-    ["/api/auth/login", "/api/auth/register", "/api/auth/provision-admin", "/api/auth/google", "/api/auth/google/link", "/api/auth/verify-email", "/api/auth/resend-verification", "/api/auth/forgot-password", "/api/auth/reset-password"],
+    ["/api/auth/login", "/api/auth/register", "/api/auth/provision-admin", "/api/auth/google", "/api/auth/google/link", "/api/auth/verify-email", "/api/auth/resend-verification", "/api/auth/forgot-password", "/api/auth/reset-password", "/api/auth/professional-setup"],
     rateLimit({
       windowMs: 15 * 60 * 1000,
       limit: config.NODE_ENV === "test" ? 1000 : 30,
@@ -198,6 +198,8 @@ export function createApp(config) {
     const user = await User.findOne({ email: data.email }).select("+password");
     if (!user?.active || !(await user.comparePassword(data.password)))
       return res.status(401).json({ message: "Invalid email or password." });
+      if (user.setupPending === true)
+        return res.status(403).json({ message: "Complete the one-time secure setup link sent to your email before signing in." });
     if (user.emailVerified === false)
       return res.status(403).json({ message: "Verify your email address before signing in. You can request a new verification link." });
     res.json(await startSession(user, res, config));
@@ -249,6 +251,35 @@ export function createApp(config) {
       await Session.deleteMany({ user: user._id }, { session });
     });
     res.json({ message: "Password updated. Sign in with your new password." });
+  });
+  app.post("/api/auth/professional-setup", requireOrigin(config), async (req, res) => {
+    const data = z.object({
+      token: z.string().min(32).max(200),
+      name: v.personName,
+      password: v.password,
+    }).strict().parse(req.body);
+    const user = await tx(async (session) => {
+      const challenge = await consumeChallenge(data.token, "professional_setup", session);
+      if (!challenge?.user) fail(400, "This professional invitation is invalid, expired, or already used. Ask the administrator to resend it.");
+      const account = await User.findOne({
+        _id: challenge.user,
+        role: "professional",
+        active: true,
+        setupPending: true,
+        emailVerified: false,
+      }).select("+password").session(session);
+      if (!account) fail(409, "This professional account is no longer awaiting setup.");
+      account.name = data.name;
+      account.password = data.password;
+      account.setupPending = false;
+      account.emailVerified = true;
+      account.emailVerifiedAt = new Date();
+      account.tokenVersion++;
+      await account.save({ session });
+      await audit(account._id, "professional.setup_completed", "User", account._id, "One-time email-verified account setup", session);
+      return account;
+    });
+    res.json(await startSession(user, res, config));
   });
   app.post("/api/auth/google/nonce", requireOrigin(config), async (_req, res) => {
     if (!config.GOOGLE_CLIENT_ID) return res.status(404).json({ message: "Google login is not configured." });
@@ -509,7 +540,7 @@ export function createApp(config) {
       ];
     res.json({
       items: await User.find(query)
-        .select("name email phone role active createdAt")
+        .select("name email phone role active setupPending createdAt")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
@@ -530,6 +561,64 @@ export function createApp(config) {
       deliveryStatus = await sendAccountEmail(config, user, "email_verification", token, config.EMAIL_TRANSPORT_FACTORY);
     }
     res.status(201).json({ ...publicUser(user), emailDeliveryStatus: deliveryStatus });
+  });
+  const professionalInvitationLimit = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: config.NODE_ENV === "test" ? 100 : 10,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { message: "Professional invitation limit reached. Try again later." },
+  });
+  app.post("/api/admin/professional-invitations", admin, professionalInvitationLimit, async (req, res) => {
+    const { email } = z.object({ email: v.email }).strict().parse(req.body);
+    if (await User.exists({ email })) fail(409, "An account with this email already exists. Sign in or use the existing account-recovery process.");
+    const user = await tx(async (session) => {
+      const [created] = await User.create([{
+        name: "Professional",
+        email,
+        password: randomBytes(48).toString("hex"),
+        role: "professional",
+        createdBy: req.user._id,
+        emailVerified: false,
+        setupPending: true,
+      }], { session });
+      await ProfessionalProfile.create([{
+        professional: created._id,
+        salonName: "Business setup required",
+        published: false,
+        whatsappNumber: "",
+      }], { session });
+      await audit(req.user._id, "professional.invited", "User", created._id, "Professional account invitation", session);
+      return created;
+    });
+    const { token } = await createChallenge(user, "professional_setup");
+    const deliveryStatus = await sendAccountEmail(config, user, "professional_setup", token, config.EMAIL_TRANSPORT_FACTORY);
+    res.status(201).json({
+      message: deliveryStatus === "sent"
+        ? "Invitation sent. The professional must follow the one-time email link within 24 hours, verify control of the address, and set a new password."
+        : "Invitation account prepared but no email was sent. Configure approved SMTP, then ask an admin to resend the invitation. Do not share a password or setup link out-of-band.",
+      emailDeliveryStatus: deliveryStatus,
+      account: { id: String(user._id), email: user.email, role: user.role, emailVerified: false, setupPending: true },
+    });
+  });
+  app.post("/api/admin/professional-invitations/:id/resend", admin, professionalInvitationLimit, async (req, res) => {
+    z.object({}).strict().parse(req.body || {});
+    const user = await User.findOne({
+      _id: v.parseId(req.params.id),
+      role: "professional",
+      active: true,
+      setupPending: true,
+      emailVerified: false,
+    });
+    if (!user) fail(404, "Pending professional invitation not found.");
+    const { token } = await createChallenge(user, "professional_setup");
+    const deliveryStatus = await sendAccountEmail(config, user, "professional_setup", token, config.EMAIL_TRANSPORT_FACTORY);
+    res.status(202).json({
+      message: deliveryStatus === "sent"
+        ? "A new one-time invitation was sent; the prior invitation is no longer valid."
+        : "No email was sent. Configure approved SMTP before resending; do not share a setup link out-of-band.",
+      emailDeliveryStatus: deliveryStatus,
+    });
   });
   app.patch("/api/admin/accounts/:id", admin, async (req, res) => {
     const id = v.parseId(req.params.id),

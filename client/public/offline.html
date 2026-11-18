@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#6543a3" />
+    <title>Offline · Salon Management</title>
+    <style>
+      :root { color-scheme: light; font-family: Arial, Helvetica, sans-serif; color: #292631; background: #f7f6fa; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 1.25rem; }
+      main { width: min(100%, 38rem); background: white; border: 1px solid #ddd9e5; border-top: 5px solid #6543a3; border-radius: .6rem; padding: clamp(1.4rem, 5vw, 2.5rem); }
+      .mark { color: #6543a3; font-weight: 700; letter-spacing: .12em; font-size: .75rem; }
+      h1 { margin: 1rem 0 .6rem; font-size: clamp(1.8rem, 7vw, 2.6rem); line-height: 1.1; }
+      p { color: #625e69; line-height: 1.65; }
+      .notice { margin: 1.3rem 0; padding: 1rem; background: #f6f1fb; border-left: 3px solid #6543a3; }
+      a, button { display: inline-flex; min-height: 2.8rem; align-items: center; justify-content: center; padding: .65rem 1rem; border: 1px solid #6543a3; border-radius: .25rem; background: #6543a3; color: #fff; font: inherit; text-decoration: none; cursor: pointer; }
+      a:focus-visible, button:focus-visible { outline: 3px solid #b58b60; outline-offset: 3px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <span class="mark">SALON MANAGEMENT · LESOTHO</span>
+      <h1>You’re offline</h1>
+      <p>The connection is unavailable. The app can show previously cached public information after it has loaded online once.</p>
+      <p class="notice"><strong>For your safety:</strong> booking requests, account access, appointment changes, and payment verification need an internet connection. They are not saved or queued offline. Do not assume a booking or payment was confirmed.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+      <p>Personal appointments and financial records are not stored in the shared offline cache.</p>
+    </main>
+    <script src="/offline-language.js" defer></script>
+  </body>
+</html>
