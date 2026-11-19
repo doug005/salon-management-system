@@ -287,6 +287,7 @@ export function Booking({ embedded = false }) {
               <select
                 required
                 value={professional}
+                disabled={professionals.loading || Boolean(professionals.error)}
                 aria-invalid={Boolean(fieldErrors.professional)}
                 aria-describedby={fieldErrors.professional ? "booking-professional-error" : undefined}
                 onChange={(e) => {
@@ -297,12 +298,15 @@ export function Booking({ embedded = false }) {
                 }}
               >
                 <option value="">Select professional</option>
+                {professionals.loading && <option value="" disabled>{t("Loading professionals…")}</option>}
+                {professionals.data?.items.length === 0 && <option value="" disabled>{t("No verified professionals are published yet")}</option>}
                 {professionals.data?.items.map((p) => (
                   <option key={p.professional} value={p.professional}>
                     {p.salonName}
                   </option>
                 ))}
               </select>
+              {professionals.error && <div><small className="field-error" role="alert">{t("Professional information is temporarily unavailable.")}</small> <button type="button" onClick={professionals.reload}>{t("Try again")}</button></div>}
               {fieldErrors.professional && <small id="booking-professional-error" className="field-error" role="alert">{fieldErrors.professional}</small>}
             </label>
           )}
