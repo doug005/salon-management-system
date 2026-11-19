@@ -19,7 +19,11 @@ export const issueToken = (user, secret, sid) =>
       algorithm: "HS256",
     },
   );
-export function authenticate(secret) {
+export const requiresEmailVerification = (user, config) =>
+  user?.role !== "customer" ||
+  config?.CUSTOMER_EMAIL_VERIFICATION_REQUIRED === "yes" ||
+  config?.EMAIL_MODE === "smtp";
+export function authenticate(secret, config) {
   return async (req, res, next) => {
     const header = req.headers.authorization || "";
     if (!header.startsWith("Bearer "))
@@ -57,7 +61,7 @@ export function authenticate(secret) {
           message: "Account role requires an explicit migration mapping.",
         });
       req.user = user;
-      if (user.emailVerified === false)
+      if (user.emailVerified === false && requiresEmailVerification(user, config))
         return res.status(403).json({ message: "Verify your email address before using protected account features." });
       req.sessionId = session._id;
       next();
@@ -96,7 +100,7 @@ export function refreshCookie(req) {
 export async function startSession(user, res, config) {
   if (user.setupPending === true)
     throw Object.assign(new Error("Complete the one-time secure setup link sent to your email before signing in."), { status: 403 });
-  if (user.emailVerified === false)
+  if (user.emailVerified === false && requiresEmailVerification(user, config))
     throw Object.assign(new Error("Verify your email address before signing in."), { status: 403 });
   if (!isCurrentRole(user.role))
     throw Object.assign(
@@ -153,7 +157,7 @@ export async function rotateSession(req, res, config) {
     clearCookie(res, config);
     return res.status(403).json({ message: "Complete the one-time secure setup link sent to your email before signing in." });
   }
-  if (user.emailVerified === false) {
+  if (user.emailVerified === false && requiresEmailVerification(user, config)) {
     await session.deleteOne();
     clearCookie(res, config);
     return res.status(403).json({ message: "Verify your email address before using protected account features." });

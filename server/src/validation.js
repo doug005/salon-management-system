@@ -66,6 +66,7 @@ export const service = z
     priceLisente: amount,
     imageUrl: safeUrl.default(""),
     active: z.boolean().default(true),
+    verified: z.boolean().default(false),
   })
   .strict();
 export const professionalAccount = register.extend({

@@ -64,6 +64,8 @@ import {
   platformSettings,
   publishedProfessionalIds,
   publicBusiness,
+  publicContentFilter,
+  publicPlatformSettings,
   paymentScope,
 } from "./tenancy.js";
 import { createProfessionalAccount } from "./accounts.js";
@@ -189,7 +191,7 @@ export function createApp(config) {
     res.status(201).json({
       message: deliveryStatus === "sent"
         ? "Account created. Check your email and follow the verification link before signing in."
-        : "Account created, but email delivery is not configured or failed. Request a verification link again after email is configured.",
+        : "Account created. Email delivery is not configured or failed, so customer sign-in remains available in safe mode; request verification again after approved email delivery is configured.",
       deliveryStatus,
     });
   });
@@ -200,7 +202,7 @@ export function createApp(config) {
       return res.status(401).json({ message: "Invalid email or password." });
       if (user.setupPending === true)
         return res.status(403).json({ message: "Complete the one-time secure setup link sent to your email before signing in." });
-    if (user.emailVerified === false)
+    if (user.emailVerified === false && (user.role !== "customer" || config.CUSTOMER_EMAIL_VERIFICATION_REQUIRED === "yes" || config.EMAIL_MODE === "smtp"))
       return res.status(403).json({ message: "Verify your email address before signing in. You can request a new verification link." });
     res.json(await startSession(user, res, config));
   });
@@ -328,7 +330,7 @@ export function createApp(config) {
     if (!user.active) return res.status(403).json({ message: "Account disabled." });
     res.json(await startSession(user, res, config));
   });
-  app.post("/api/auth/google/link", requireOrigin(config), authenticate(config.JWT_SECRET), async (req, res) => {
+  app.post("/api/auth/google/link", requireOrigin(config), authenticate(config.JWT_SECRET, config), async (req, res) => {
     if (!config.GOOGLE_CLIENT_ID) return res.status(404).json({ message: "Google login is not configured." });
     if (!['professional', 'customer'].includes(req.user.role)) return res.status(403).json({ message: "Google linking is unavailable for this role." });
     const { credential } = z.object({ credential: z.string().min(50).max(8192) }).strict().parse(req.body);
@@ -416,7 +418,7 @@ export function createApp(config) {
     res.status(410).json({ message: "Legacy owner provisioning is disabled." }),
   );
   app.get("/api/public/settings", async (_req, res) =>
-    res.json(await platformSettings()),
+    res.json(publicPlatformSettings(await platformSettings())),
   );
   app.get("/api/public/professionals", async (_req, res) => {
     const ids = await publishedProfessionalIds();
@@ -457,7 +459,7 @@ export function createApp(config) {
   });
   app.get("/api/public/services", async (req, res) => {
     const ids = await publishedProfessionalIds();
-    const query = { active: true, professional: { $in: ids } };
+    const query = { active: true, ...publicContentFilter(), professional: { $in: ids } };
     if (req.query.professional) {
       const id = v.parseId(req.query.professional);
       query.professional = { $in: ids.filter((value) => String(value) === id) };
@@ -486,13 +488,21 @@ export function createApp(config) {
       .object({ service: v.id, professional: v.id, date: z.iso.date() })
       .strict()
       .parse(req.query);
+    const ids = await publishedProfessionalIds();
+    const service = await Service.findOne({
+      _id: query.service,
+      active: true,
+      ...publicContentFilter(),
+      professional: { $in: ids.filter((value) => String(value) === query.professional) },
+    });
+    if (!service) fail(404, "Service or professional unavailable.");
     res.json({
       slots: await availability(query.service, query.professional, query.date),
     });
   });
   publicAdvertisementRoutes(app);
   publicBusinessMediaRoutes(app);
-  app.use("/api", authenticate(config.JWT_SECRET));
+  app.use("/api", authenticate(config.JWT_SECRET, config));
   privateAdvertisementRoutes(app);
   privateBusinessMediaRoutes(app);
   const admin = allowRoles("admin"),

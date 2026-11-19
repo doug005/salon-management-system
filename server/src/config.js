@@ -24,6 +24,7 @@ export function loadConfig(env = process.env) {
       SMTP_PASSWORD: z.string().optional(),
       SMTP_FROM: z.email().optional(),
       EMAIL_DELIVERY_APPROVED: z.enum(["yes", "no"]).default("no"),
+      CUSTOMER_EMAIL_VERIFICATION_REQUIRED: z.enum(["yes", "no"]).default("no"),
     })
     .parse(env);
   if (

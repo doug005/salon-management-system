@@ -1,3 +1,27 @@
+# Customer experience audit fixes — verified implementation (2026-11-19)
+
+## Completed
+
+- Production public data now fails closed: demo professionals are not discoverable, service listings and promotional advertisements require an explicit owner-verified flag, and direct profile/service/advertisement media routes apply the same gate. The public shell uses the supplied salon identity and address — Makatleho Beauty Palour, Phomola Road, Lepoqong, Maseu 100, Lesotho — without fabricating phone numbers, email addresses, prices, payment recipients, reviews, or portfolio imagery. Generic external illustrative service-photo fallbacks were removed; only owner-uploaded media is rendered as a portfolio image.
+- Customer booking can be explored before authentication. Professional, service, date, and time selections are preserved in the internal return URL through login or registration. Availability validation now checks the requested published professional/service pair. Loading, retry, and mobile touch-target states were improved, and the existing manual payment/confirmation semantics remain unchanged.
+- Safe-mode customer login no longer blocks an otherwise valid password account solely because SMTP is unavailable. The session is marked `emailVerified: false` and displays a reminder; professional/admin accounts and deployments with SMTP enabled remain email-gated. Registration copy no longer falsely claims customers cannot sign in. Password reset and verification remain single-use/expiring and still require approved email delivery for actual messages.
+- Owner-facing service management now exposes the public-verification flag. Production advertisement publication requires an explicit `{ verified: true }` acknowledgement; local/test demo publication remains compatible with its isolated fixtures. Essential retry, booking handoff, and pending-email strings received Sesotho catalog entries.
+
+## Actual verification
+
+- `npm run lint`: passed.
+- `npm run build`: passed.
+- `MONGOMS_RUNTIME_DOWNLOAD=false npm test`: **53/53 passed**.
+- `MONGOMS_RUNTIME_DOWNLOAD=false TMPDIR="$PWD/.local/tmp" npm run test:e2e`: **15/15 passed** on desktop/mobile isolated synthetic workflows.
+- Production helper smoke check passed: public identity serializer returned the supplied name/address and `publicContentFilter()` returned `{ verified: true }`.
+- Isolated safe-mode customer login smoke check passed with HTTP 200, a customer session token, and `emailVerified: false`. No credential values were printed or committed.
+- `npm audit --omit=dev`: zero production advisories. The repository’s install output reported development-tool advisories; no force upgrade was applied.
+
+## Production blockers and delivery state
+
+- Approved production SMTP credentials and `EMAIL_DELIVERY_APPROVED=yes` were not available in this task, so real verification/recovery delivery was not claimed or tested. Do not switch `EMAIL_MODE=smtp` until the owner supplies and configures an approved provider through the existing Render service.
+- The existing Vercel/Render infrastructure and GitHub repository are preserved. The verified change is ready for the authorized `main` push; deployment health and real hosted email delivery must be checked after the existing service hooks build the pushed commit.
+
 # Urgent recovery — presentation, onboarding and local verification (2026-11-18)
 
 ## Current state

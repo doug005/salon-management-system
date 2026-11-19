@@ -8,7 +8,7 @@ import {
   AdvertisementLock as Lock,
   User,
 } from "./models.js";
-import { businessScope } from "./tenancy.js";
+import { businessScope, publicContentFilter, publishedProfessionalIds } from "./tenancy.js";
 import { tx, fail, audit } from "./business.js";
 import { allowRoles } from "./auth.js";
 import { imageStorage } from "./ad-storage.js";
@@ -102,6 +102,7 @@ const view = (ad) => ({
   endsAt: ad.endsAt,
   imageUrl: ad.image ? `/api/public/advertisements/${ad._id}/image` : null,
   videoUrl: ad.video ? `/api/public/advertisements/${ad._id}/video` : null,
+  verified: ad.verified === true,
 });
 export function publicAdvertisementRoutes(app) {
   app.get("/api/public/advertisements", async (req, res) => {
@@ -113,9 +114,11 @@ export function publicAdvertisementRoutes(app) {
       active: true,
       ...(professional ? { _id: professional } : {}),
     }).select("_id");
+    const published = await publishedProfessionalIds();
     const rows = await Ad.find({
       ...activeAds(),
-      professional: { $in: active.map((u) => u._id) },
+      ...publicContentFilter(),
+      professional: { $in: active.map((u) => u._id).filter((id) => published.some((value) => String(value) === String(id))) },
     })
       .sort({ startsAt: -1 })
       .limit(100);
@@ -129,11 +132,13 @@ export function publicAdvertisementRoutes(app) {
     if (
       !ad ||
       !ad.image ||
+      (process.env.NODE_ENV === "production" && !ad.verified) ||
       !(await User.exists({
         _id: ad.professional,
         active: true,
         role: "professional",
-      }))
+      })) ||
+      (process.env.NODE_ENV === "production" && !(await publishedProfessionalIds()).some((value) => String(value) === String(ad.professional)))
     )
       fail(404, "Image unavailable.");
     const image = await Image.findOne({
@@ -156,11 +161,13 @@ export function publicAdvertisementRoutes(app) {
     });
     if (
       !ad?.video ||
+      (process.env.NODE_ENV === "production" && !ad.verified) ||
       !(await User.exists({
         _id: ad.professional,
         active: true,
         role: "professional",
-      }))
+      })) ||
+      (process.env.NODE_ENV === "production" && !(await publishedProfessionalIds()).some((value) => String(value) === String(ad.professional)))
     )
       fail(404, "Video unavailable.");
     const video = await Image.findOne({
@@ -264,6 +271,9 @@ export function privateAdvertisementRoutes(app) {
   app.post(base + "/:id/publish", async (req, res) =>
     res.json(
       await mutate(req, "advertisement.publish", async (ad, session) => {
+        const confirmation = process.env.NODE_ENV === "production"
+          ? z.object({ verified: z.literal(true) }).strict().parse(req.body || {})
+          : { verified: true };
         const now = new Date();
         if (ad.status === "published" && +ad.endsAt > +now)
           fail(
@@ -278,6 +288,7 @@ export function privateAdvertisementRoutes(app) {
         )
           fail(409, "Maximum three active advertisements.");
         ad.status = "published";
+        ad.verified = confirmation.verified;
         ad.startsAt = now;
         ad.endsAt = new Date(+now + week);
         await ad.save({ session });

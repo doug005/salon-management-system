@@ -32,6 +32,20 @@ export const platformSettings = () =>
     { $setOnInsert: { key: "platform" } },
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
+const production = () => process.env.NODE_ENV === "production";
+export const publicContentFilter = () => (production() ? { verified: true } : {});
+export function publicPlatformSettings(settings) {
+  const value = settings?.toObject ? settings.toObject() : { ...(settings || {}) };
+  if (!production() || !value.demo) return { ...value, address: value.address || "" };
+  return {
+    ...value,
+    platformName: "Makatleho Beauty Palour",
+    description: "Verified salon location information. Service details are published after owner verification.",
+    demo: false,
+    address: "Phomola Road, Lepoqong, Maseu 100, Lesotho",
+    publicContentStatus: "verified_identity_only",
+  };
+}
 export function professionalSettings(professional) {
   if (!professional)
     throw Object.assign(new Error("Professional ownership is required."), {
@@ -51,6 +65,7 @@ export const publishedProfessionalIds = async () => {
     await ProfessionalProfile.find({
       professional: { $in: active.map((u) => u._id) },
       published: true,
+      ...(production() ? { demo: false } : {}),
     }).select("professional")
   ).map((p) => p.professional);
 };

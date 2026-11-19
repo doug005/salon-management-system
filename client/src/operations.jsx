@@ -1,6 +1,6 @@
 import { DataTable } from "./dashboard.jsx";
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   BarChart,
   Bar,
@@ -34,9 +34,7 @@ export function Feedback({ error, message }) {
 export function Loading({ state }) {
   const { t } = useLanguage();
   return state.error ? (
-    <p className="error" role="alert">
-      {state.error}
-    </p>
+    <div><p className="error" role="alert">{state.error}</p>{state.reload && <button type="button" onClick={state.reload}>{t("Try again")}</button>}</div>
   ) : state.loading ? (
     <p role="status">{t("Loading…")}</p>
   ) : null;
@@ -83,11 +81,12 @@ export function Booking({ embedded = false }) {
   const { session, loading } = useAuth();
   const online = useOnline();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const own = session?.user.role === "professional";
   const [selectedProfessional, setProfessional] = useState(searchParams.get("professional") || ""),
     [service, setService] = useState(searchParams.get("service") || ""),
-    [day, setDay] = useState(""),
-    [time, setTime] = useState(""),
+    [day, setDay] = useState(searchParams.get("date") || ""),
+    [time, setTime] = useState(searchParams.get("time") || ""),
     [customer, setCustomer] = useState(""),
     [bookingMode, setBookingMode] = useState("phone"),
     [guestName, setGuestName] = useState(""),
@@ -126,6 +125,16 @@ export function Booking({ embedded = false }) {
   );
   const business = professional ? profile.data : null;
   const selected = services.data?.items.find((s) => s._id === service);
+  const bookingPath = (() => {
+    const params = new URLSearchParams();
+    if (professional) params.set("professional", professional);
+    if (service) params.set("service", service);
+    if (day) params.set("date", day);
+    if (time) params.set("time", time);
+    return `/book${params.toString() ? `?${params}` : ""}`;
+  })();
+  const loginPath = `/login?next=${encodeURIComponent(bookingPath)}`;
+  const registerPath = `/register?next=${encodeURIComponent(bookingPath)}`;
   function clearFieldError(field) {
     setFieldErrors((current) => ({ ...current, [field]: "" }));
   }
@@ -162,10 +171,18 @@ export function Booking({ embedded = false }) {
       formRef.current?.querySelector('[aria-invalid="true"]')?.focus();
       return;
     }
+    if (!session) {
+      navigate(loginPath);
+      return;
+    }
     setConfirming(true);
   }
   async function confirmBooking() {
     if (submitting.current || !formRef.current) return;
+    if (!session) {
+      navigate(loginPath);
+      return;
+    }
     if (!online) {
       setError(t("You are offline. Booking requests are not saved or queued. Reconnect before booking."));
       setConfirming(false);
@@ -230,11 +247,6 @@ export function Booking({ embedded = false }) {
       ) : session?.user.role === "admin" ? (
         <div className="notice">
           Platform admins do not create or manage private professional bookings.
-        </div>
-      ) : !session ? (
-        <div className="notice">
-          <Link to="/login">Log in</Link> or{" "}
-          <Link to="/register">register as a customer</Link> to book.
         </div>
       ) : created ? (
         <div className="panel">
@@ -432,6 +444,7 @@ export function Booking({ embedded = false }) {
           )}
           <Feedback error={error} />
           {!online && <p className="offline-action-note" role="status">{t("Booking requires a connection. Your request will not be queued offline.")}</p>}
+          {!session && <p className="notice">Choose a professional, service, date and available time first. Then <Link to={loginPath}>log in</Link> or <Link to={registerPath}>register as a customer</Link> to submit the request; your selections will be kept.</p>}
           <button className="button" disabled={!online || busy || !time || !business || !business.whatsappNumber}>
             {t("Request Book")}
           </button>
@@ -826,6 +839,7 @@ const fields = {
     ["priceLisente", "Price (integer lisente; 100 = M1)", "number"],
     ["imageUrl", "Image URL (HTTPS, optional)", "url"],
     ["active", "Active", "checkbox"],
+    ["verified", "Owner-verified for public booking", "checkbox"],
   ],
   customers: [
     ["name", "Name", "text"],
@@ -847,6 +861,7 @@ const initialDraft = {
     priceLisente: 0,
     imageUrl: "",
     active: true,
+    verified: false,
   },
   customers: { name: "", email: "", password: "" },
   expenses: {
@@ -1135,7 +1150,7 @@ export function Manage({ kind }) {
                   label: "Status",
                   render: (item) => (
                     <span className="badge">
-                      {item.active ? "Active" : "Inactive"}
+                      {item.active ? "Active" : "Inactive"} · {item.verified ? "Verified for public" : "Needs owner verification"}
                     </span>
                   ),
                 },
@@ -1176,7 +1191,7 @@ export function Manage({ kind }) {
             {kind === "services" ? (
               <p>
                 {item.durationMinutes} min · {money(item.priceLisente)} ·{" "}
-                {item.active ? "Active" : "Inactive"}
+                {item.active ? "Active" : "Inactive"} · {item.verified ? "Verified for public" : "Needs owner verification"}
               </p>
             ) : kind === "expenses" ? (
               <p>

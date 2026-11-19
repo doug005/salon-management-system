@@ -23,6 +23,7 @@ import {
   useNavigate,
   useLocation,
   useParams,
+  useSearchParams,
   useNavigationType,
 } from "react-router-dom";
 import {
@@ -224,10 +225,8 @@ function Layout() {
           <div>
             <Brand />
             <p>A thoughtful space for your next chapter.</p>
-            {business?.demo && (
-              <small>
-                Demonstration salon identity. Replace before launch.
-              </small>
+            {business?.publicContentStatus === "verified_identity_only" && (
+              <small>Verified location information. Services and prices will appear after the salon verifies them.</small>
             )}
           </div>
           <div>
@@ -240,7 +239,7 @@ function Layout() {
             <p className="eyebrow">YOUR VISIT</p>
             <Link to="/book">Appointments</Link>
             <Link to="/register">Create an account</Link>
-            <p>Africa · Maloti · Lesotho/Maseru</p>
+            <p>{business?.address || "Location details are not yet published."}</p>
           </div>
         </div>
         <div className="container footer-bottom">
@@ -279,8 +278,8 @@ function ServiceCards({ carousel = false }) {
   }
   return (
     <>
-      {state.loading && <p>Loading services…</p>}
-      {state.error && <p className="error" role="alert">{state.error}</p>}
+      {state.loading && <p role="status">Loading services…</p>}
+      {state.error && <div><p className="error" role="alert">Services are temporarily unavailable.</p><button type="button" onClick={state.reload}>Try again</button></div>}
       {!state.loading && !state.error && items.length === 0 && <p>No active services are currently available.</p>}
       {carousel && active ? (
         <section className={`salon-featured-story${visible ? "" : " is-fading"}`} aria-label="Featured salon service" aria-roledescription="carousel"
@@ -417,7 +416,7 @@ function Services() {
   const { t } = useLanguage();
   return <section className="container section">
     <PageTitle label={t("THE SERVICE EDIT")} title={t("All services")}>{t("Browse every available service and select one to see details and book.")}</PageTitle>
-    {business?.demo && <p className="demo-notice">Demonstration menu — these are synthetic services and prices.</p>}
+    {business?.publicContentStatus === "verified_identity_only" && <p className="notice">The salon location is verified. Service names, prices and booking times will appear after the salon verifies the catalogue.</p>}
     <ServiceCards />
   </section>;
 }
@@ -425,8 +424,8 @@ function ContactCards() {
   const state = useData("/public/professionals");
   return (
     <>
-      {state.loading && <p>Loading professionals…</p>}
-      {state.error && <p className="error">{state.error}</p>}
+      {state.loading && <p role="status">Loading professionals…</p>}
+      {state.error && <div><p className="error" role="alert">Professional information is temporarily unavailable.</p><button type="button" onClick={state.reload}>Try again</button></div>}
       {state.data?.items.length === 0 && (
         <p>No professional business profiles are published yet.</p>
       )}
@@ -482,9 +481,12 @@ function AuthPage({ register = false, embedded = false }) {
   const [fieldErrors, setFieldErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const requestedNext = searchParams.get("next") || "";
+  const returnPath = /^\/(?!\/)/.test(requestedNext) ? requestedNext : "";
   const formRef = useRef(null);
   if (loading) return <p>Loading session…</p>;
-  if (session) return embedded ? null : <Navigate to={roleHome(session.user.role)} replace />;
+  if (session) return embedded ? null : <Navigate to={returnPath || roleHome(session.user.role)} replace />;
   async function submit(event) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -524,7 +526,7 @@ function AuthPage({ register = false, embedded = false }) {
         return;
       }
       setSession(data);
-      navigate(roleHome(data.user.role));
+      navigate(returnPath || roleHome(data.user.role));
     } catch (err) {
       const serverFields = Object.fromEntries(
         Object.entries(err.fieldErrors || {}).filter(([field]) =>
@@ -621,21 +623,21 @@ function AuthPage({ register = false, embedded = false }) {
             {t(error)}
           </p>
         )}
-        {verificationPending && <Link to="/verify-email">Request another verification link</Link>}
+        {verificationPending && <Link to={`/verify-email${returnPath ? `?next=${encodeURIComponent(returnPath)}` : ""}`}>Request another verification link</Link>}
         <button className="button" disabled={busy}>
           {t(busy ? "Please wait…" : register ? "Create account" : "Log in")}{" "}
           <ArrowRight size={17} />
         </button>
         <p>
           {t(register ? "Already have an account?" : "New here?")}{" "}
-          <Link className="underlink" to={register ? "/login" : "/register"}>
+          <Link className="underlink" to={`${register ? "/login" : "/register"}${returnPath ? `?next=${encodeURIComponent(returnPath)}` : ""}`}>
             {t(register ? "Log in" : "Create an account")}
           </Link>
         </p>
         {!register && <p><Link className="underlink" to="/forgot-password">{t("Forgot password?")}</Link></p>}
-        {!register && error.toLowerCase().includes("verify your email") && <p><Link className="underlink" to="/verify-email">Resend verification link</Link></p>}
+        {!register && error.toLowerCase().includes("verify your email") && <p><Link className="underlink" to={`/verify-email${returnPath ? `?next=${encodeURIComponent(returnPath)}` : ""}`}>Resend verification link</Link></p>}
         <div className="google-auth-separator">Or use your Google account</div>
-        <GoogleButton onSession={(data) => { setSession(data); navigate(roleHome(data.user.role)); }} />
+        <GoogleButton onSession={(data) => { setSession(data); navigate(returnPath || roleHome(data.user.role)); }} />
         <small>
           Existing professional accounts must first link Google while signed in. Google sign-in needs internet.
         </small>
@@ -689,7 +691,7 @@ function Workspace({ role }) {
         ? "Professional"
         : "Customer";
   return (
-    <><ConnectionBanner /><div className="studio-workspace-top"><Brand /><nav aria-label="Site shortcuts"><Link to="/">{t("Home")}</Link><Link to="/#services-preview">{t("Services")}</Link><Link className="studio-nav-cta" to={base}>{t("My account")} <ArrowUpRight size={14}/></Link><button onClick={() => setSession(null)}>{t("Sign out")}</button><LanguageSwitcher /></nav></div><div className="admin-layout workspace">
+    <><ConnectionBanner />{session.user.role === "customer" && session.user.emailVerified === false && <div className="container notice" role="status">Email verification is still pending. You can use your customer account now; verify your address after approved email delivery is configured to enable reliable recovery messages.</div>}<div className="studio-workspace-top"><Brand /><nav aria-label="Site shortcuts"><Link to="/">{t("Home")}</Link><Link to="/#services-preview">{t("Services")}</Link><Link className="studio-nav-cta" to={base}>{t("My account")} <ArrowUpRight size={14}/></Link><button onClick={() => setSession(null)}>{t("Sign out")}</button><LanguageSwitcher /></nav></div><div className="admin-layout workspace">
       <aside
         id="workspace-navigation"
         className={open ? "admin-sidebar expanded" : "admin-sidebar"}

@@ -1983,6 +1983,13 @@ body { background: var(--salon-background); }
   .public-site .header-inner {
     position: relative;
   }
+  .public-site .menu-toggle {
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-grid;
+    place-items: center;
+    padding: 8px;
+  }
   .public-site .nav {
     display: none !important;
     position: absolute;

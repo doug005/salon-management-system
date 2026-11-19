@@ -112,6 +112,8 @@ export const Service = model(
       imageUrl: { type: String, default: "" },
       image: ref("BusinessMedia", false),
       active: { type: Boolean, default: true },
+      // Public production listings require an owner-confirmed service record.
+      verified: { type: Boolean, default: false },
     },
     options,
   ),
@@ -434,6 +436,8 @@ const advertisementSchema = new Schema(
     startsAt: Date,
     endsAt: Date,
     video: ref("AdvertisementImage", false),
+    // Public production promotions require an owner-confirmed offer.
+    verified: { type: Boolean, default: false },
     moderatedBy: ref("User", false),
     moderatedAt: Date,
     moderationNote: { type: String, maxlength: 500 },

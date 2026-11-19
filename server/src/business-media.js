@@ -57,14 +57,14 @@ export async function cleanupBusinessMedia() {
 
 export function publicBusinessMediaRoutes(app) {
   app.get("/api/public/professionals/:id/photo", async (req, res) => {
-    const profile = await ProfessionalProfile.findOne({ professional: id.parse(req.params.id), published: true }).populate("photo");
+    const profile = await ProfessionalProfile.findOne({ professional: id.parse(req.params.id), published: true, ...(process.env.NODE_ENV === "production" ? { demo: false } : {}) }).populate("photo");
     if (!profile?.photo || profile.photo.state !== "ready" || profile.photo.kind !== "profile" || String(profile.photo.professional) !== String(profile.professional)) fail(404, "Profile photo unavailable.");
     if (!(await User.exists({ _id: profile.professional, role: "professional", active: true }))) fail(404, "Profile photo unavailable.");
     res.set("Cache-Control", "no-store").set("Cross-Origin-Resource-Policy", "cross-origin").type("webp").send(await storage().get(profile.photo.key));
   });
 
   app.get("/api/public/services/:id/image", async (req, res) => {
-    const service = await Service.findOne({ _id: id.parse(req.params.id), active: true }).populate("image");
+    const service = await Service.findOne({ _id: id.parse(req.params.id), active: true, ...(process.env.NODE_ENV === "production" ? { verified: true } : {}) }).populate("image");
     if (!service?.image || service.image.state !== "ready" || service.image.kind !== "service" || String(service.image.professional) !== String(service.professional)) fail(404, "Service image unavailable.");
     const ids = await publishedProfessionalIds();
     if (!ids.some((value) => String(value) === String(service.professional))) fail(404, "Service image unavailable.");

@@ -9,9 +9,9 @@ export function PublicAdvertisements({ professional }) {
     "/public/advertisements" +
       (professional ? "?professional=" + professional : ""),
   );
-  if (state.loading) return <p>Loading advertisements…</p>;
+  if (state.loading) return <p role="status">Loading advertisements…</p>;
   if (state.error)
-    return <p role="alert">Advertisements are temporarily unavailable.</p>;
+    return <div><p role="alert">Advertisements are temporarily unavailable.</p><button type="button" onClick={state.reload}>Try again</button></div>;
   if (!state.data?.items.length) return <p>No active advertisements.</p>;
   return (
     <div className="ad-grid">
@@ -69,8 +69,8 @@ export function ProfessionalPublicProfile() {
           </div>
         </div>
         <div className="section-heading"><h2>Available services</h2></div>
-        {services.loading && <p>Loading services…</p>}
-        {services.error && <p role="alert">Services are temporarily unavailable.</p>}
+        {services.loading && <p role="status">Loading services…</p>}
+        {services.error && <div><p role="alert">Services are temporarily unavailable.</p><button type="button" onClick={services.reload}>Try again</button></div>}
         {services.data?.items.length === 0 && <p>No published services yet.</p>}
         <div className="discovery-grid">
           {services.data?.items.map((item, i) => <Link className="discovery-card" key={item._id} to={`/services/${item._id}`} state={{ returnTo: location.pathname, returnLabel: "← Back to professional profile" }}>
@@ -251,7 +251,7 @@ export function AdvertisementManagement() {
                       "/professional/advertisements/" +
                         ad._id +
                         (ad.status === "published" ? "/unpublish" : "/publish"),
-                      { method: "POST" },
+                        { method: "POST", body: ad.status === "published" ? undefined : { verified: true } },
                     ),
                   )
                 }

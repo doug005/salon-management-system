@@ -13,6 +13,8 @@ export function VerifyEmailPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const token = params.get("token") || "";
+  const next = params.get("next") || "";
+  const loginPath = next.startsWith("/") && !next.startsWith("//") ? `/login?next=${encodeURIComponent(next)}` : "/login";
   async function verify() {
     setBusy(true); setError(""); setMessage("");
     try { const result = await request("/auth/verify-email", { method: "POST", body: { token } }); setMessage(result.message); }
@@ -27,7 +29,7 @@ export function VerifyEmailPage() {
   }
   return <AuthPanel eyebrow="EMAIL VERIFICATION" title={token ? "Verify your email." : "Need a new verification link?"}>
     {token ? <button className="button" disabled={busy} onClick={verify}>{busy ? "Verifying…" : "Verify email address"}</button> : <form className="form-grid" onSubmit={resend}><label>Email address<input type="email" autoComplete="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} /></label><button className="button" disabled={busy}>{busy ? "Sending…" : "Resend verification link"}</button></form>}
-    {error && <p className="error" role="alert">{error}</p>}{message && <p className="notice" role="status">{message}</p>}<p><Link to="/login">Return to sign in</Link></p>
+    {error && <p className="error" role="alert">{error}</p>}{message && <p className="notice" role="status">{message}</p>}<p><Link to={loginPath}>Return to sign in</Link></p>
   </AuthPanel>;
 }
 
